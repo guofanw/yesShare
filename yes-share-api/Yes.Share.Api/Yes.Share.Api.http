@@ -1,0 +1,6 @@
+@Yes.Share.Api_HostAddress = http://localhost:5211
+
+GET {{Yes.Share.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
