@@ -108,6 +108,14 @@ ENTRYPOINT ["dotnet", "Yes.Share.Api.dll"]
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 提交 Pull Request
 
+## 🖼️ 项目截图（Project screenshot）
+![输入图片说明](imgs/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-01-27%20144421.png)
+![输入图片说明](imgs/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-01-27%20144733.png)
+![输入图片说明](imgs/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-01-27%20144744.png)
+![输入图片说明](imgs/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-01-27%20144757.png)
+![输入图片说明](imgs/%E5%B1%8F%E5%B9%95%E6%88%AA%E5%9B%BE%202026-01-27%20144808.png)
+
+
 ## 📄 许可证 (License)
 
 本项目采用 [MIT License](LICENSE) 许可证。
