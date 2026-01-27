@@ -1,0 +1,19 @@
+body {
+    background-color: #f8f9fa;
+}
+pre {
+    background: #f4f4f4;
+    padding: 15px;
+    border-radius: 5px;
+    max-height: 500px;
+}
+.drag-drop-zone {
+    border: 2px dashed #ccc;
+    padding: 20px;
+    text-align: center;
+    background: white;
+    cursor: pointer;
+}
+.drag-drop-zone:hover {
+    background: #e9ecef;
+}
