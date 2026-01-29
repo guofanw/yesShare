@@ -115,6 +115,7 @@ ENTRYPOINT ["dotnet", "Yes.Share.Api.dll"]
 ![输入图片说明](imgs/3.png)
 ![输入图片说明](imgs/4.png)
 ![输入图片说明](imgs/5.png)
+![输入图片说明](imgs/6.png)
 
 
 ## 📄 许可证 (License)
