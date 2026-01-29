@@ -101,6 +101,14 @@ COPY --from=build /app/publish .
 ENTRYPOINT ["dotnet", "Yes.Share.Api.dll"]
 ```
 
+## 🖼️ 项目截图 (project img)
+![输入图片说明](imgs/1.png)
+![输入图片说明](imgs/2.png)
+![输入图片说明](imgs/3.png)
+![输入图片说明](imgs/4.png)
+![输入图片说明](imgs/5.png)
+![输入图片说明](imgs/6.png)
+
 ## 🤝 贡献指南 (Contributing)
 
 欢迎提交 Pull Request 或 Issue！
