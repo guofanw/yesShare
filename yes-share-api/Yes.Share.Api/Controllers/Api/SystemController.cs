@@ -56,7 +56,7 @@ public class SystemController : ControllerBase
             .Take(20)
             .Select(l => new LogDto(
                 l.Action,
-                l.UserName ?? (l.UserId.HasValue ? l.UserId.ToString() : "System"),
+                l.UserName ?? (l.UserId.HasValue ? l.UserId.Value.ToString() : "System"),
                 l.Details ?? "",
                 l.Timestamp
             ))

@@ -8,11 +8,13 @@ public record FileDto(
     string UploaderName, 
     DateTime UploadTime, 
     string ShareLink,
-    bool IsPublic
+    bool IsPublic,
+    bool IsFolder
 );
 
-public record ChunkUploadInitRequest(string FileName, long TotalSize);
-public record ChunkUploadInitResponse(string UploadId); // We can use Guid as UploadId, which might map to a temp file or DB entry
-public record ChunkUploadFinishRequest(string UploadId, string FileName); // Confirm finish
+public record CreateFolderRequest(string FolderName, int? ParentId);
+public record ChunkUploadInitRequest(string FileName, long TotalSize, int? ParentId);
+public record ChunkUploadInitResponse(string UploadId);
+public record ChunkUploadFinishRequest(string UploadId, string FileName, int? ParentId);
 
 public record UpdateFilePermissionRequest(bool IsPublic);

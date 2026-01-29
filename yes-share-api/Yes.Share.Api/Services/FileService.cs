@@ -21,7 +21,7 @@ public class FileService : IFileService
         if (!Directory.Exists(_tempPath)) Directory.CreateDirectory(_tempPath);
     }
 
-    public async Task<SharedFile> UploadFileAsync(IFormFile file, int uploaderId)
+    public async Task<SharedFile> UploadFileAsync(IFormFile file, int uploaderId, int? parentId)
     {
         var storedFileName = $"{Guid.NewGuid()}{Path.GetExtension(file.FileName)}";
         var filePath = Path.Combine(_uploadPath, storedFileName);
@@ -38,7 +38,9 @@ public class FileService : IFileService
             FileSize = file.Length,
             ContentType = file.ContentType,
             UploaderId = uploaderId,
-            UploadTime = DateTime.UtcNow
+            UploadTime = DateTime.UtcNow,
+            ParentId = parentId,
+            IsFolder = false
         };
 
         _context.SharedFiles.Add(sharedFile);
@@ -54,6 +56,25 @@ public class FileService : IFileService
         
         await _context.SaveChangesAsync();
         return sharedFile;
+    }
+
+    public async Task<SharedFile> CreateFolderAsync(string folderName, int? parentId, int uploaderId)
+    {
+        var folder = new SharedFile
+        {
+            FileName = folderName,
+            StoredFileName = "", // No physical file
+            FileSize = 0,
+            ContentType = "inode/directory",
+            UploaderId = uploaderId,
+            UploadTime = DateTime.UtcNow,
+            ParentId = parentId,
+            IsFolder = true
+        };
+        
+        _context.SharedFiles.Add(folder);
+        await _context.SaveChangesAsync();
+        return folder;
     }
 
     public Task<string> InitChunkUploadAsync(ChunkUploadInitRequest request, int uploaderId)
@@ -80,7 +101,7 @@ public class FileService : IFileService
         }
     }
 
-    public async Task<SharedFile> FinishChunkUploadAsync(string uploadId, string fileName, int uploaderId)
+    public async Task<SharedFile> FinishChunkUploadAsync(string uploadId, string fileName, int uploaderId, int? parentId)
     {
         var tempFilePath = Path.Combine(_tempPath, uploadId);
         if (!System.IO.File.Exists(tempFilePath)) throw new FileNotFoundException("Upload session not found");
@@ -99,7 +120,9 @@ public class FileService : IFileService
             FileSize = fileInfo.Length,
             ContentType = "application/octet-stream", // Could infer from extension
             UploaderId = uploaderId,
-            UploadTime = DateTime.UtcNow
+            UploadTime = DateTime.UtcNow,
+            ParentId = parentId,
+            IsFolder = false
         };
 
         _context.SharedFiles.Add(sharedFile);
@@ -116,9 +139,23 @@ public class FileService : IFileService
         return sharedFile;
     }
 
-    public async Task<IEnumerable<FileDto>> GetFilesAsync(int userId, bool isAdmin)
+    public async Task<IEnumerable<FileDto>> GetFilesAsync(int userId, bool isAdmin, int? parentId, string? search = null)
     {
         IQueryable<SharedFile> query = _context.SharedFiles.Include(f => f.Uploader);
+
+        // Filter by ParentId ONLY if not searching. 
+        // Usually file system search is recursive or current folder. 
+        // Requirement implies "Search by filename", usually global or current tree. 
+        // Let's implement: If search is provided, ignore parentId (search all), or maybe search within current?
+        // Most LAN tools search globally. Let's search globally if search text is present.
+        if (string.IsNullOrWhiteSpace(search))
+        {
+            query = query.Where(f => f.ParentId == parentId);
+        }
+        else
+        {
+            query = query.Where(f => f.FileName.Contains(search));
+        }
 
         if (!isAdmin)
         {
@@ -132,7 +169,10 @@ public class FileService : IFileService
                 f.Permissions.Any(p => p.TargetUserId == userId || p.TargetRole == "User")); // Assuming "User" role for now
         }
 
-        var files = await query.OrderByDescending(f => f.UploadTime).ToListAsync();
+        var files = await query
+            .OrderByDescending(f => f.IsFolder) // Folders first
+            .ThenByDescending(f => f.UploadTime)
+            .ToListAsync();
 
         return files.Select(f => new FileDto(
             f.Id,
@@ -142,8 +182,22 @@ public class FileService : IFileService
             f.Uploader?.Username ?? "Unknown",
             f.UploadTime,
             f.ShareToken,
-            f.IsPublic
+            f.IsPublic,
+            f.IsFolder
         ));
+    }
+
+    public async Task<List<SharedFile>> GetFolderPathAsync(int? folderId)
+    {
+        var path = new List<SharedFile>();
+        while (folderId.HasValue)
+        {
+            var folder = await _context.SharedFiles.FindAsync(folderId);
+            if (folder == null || !folder.IsFolder) break;
+            path.Insert(0, folder);
+            folderId = folder.ParentId;
+        }
+        return path;
     }
 
     public async Task<SharedFile?> GetFileAsync(int fileId)

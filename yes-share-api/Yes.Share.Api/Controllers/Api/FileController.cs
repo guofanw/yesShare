@@ -2,6 +2,7 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Yes.Share.Api.Dtos;
+using Yes.Share.Api.Models;
 using Yes.Share.Api.Services;
 
 namespace Yes.Share.Api.Controllers.Api;
@@ -22,20 +23,45 @@ public class FileController : ControllerBase
     private bool IsAdmin => User.IsInRole("Admin");
 
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<FileDto>>> GetFiles()
+    public async Task<ActionResult<IEnumerable<FileDto>>> GetFiles([FromQuery] int? parentId = null, [FromQuery] string? search = null)
     {
-        var files = await _fileService.GetFilesAsync(UserId, IsAdmin);
+        var files = await _fileService.GetFilesAsync(UserId, IsAdmin, parentId, search);
         return Ok(files);
+    }
+
+    [HttpGet("path")]
+    public async Task<ActionResult<IEnumerable<SharedFile>>> GetFolderPath([FromQuery] int? folderId = null)
+    {
+        var path = await _fileService.GetFolderPathAsync(folderId);
+        // Simple DTO mapping or cycle fix
+        return Ok(path.Select(f => new { f.Id, f.FileName, f.ParentId }));
+    }
+
+    [HttpPost("folder")]
+    public async Task<ActionResult<FileDto>> CreateFolder([FromBody] CreateFolderRequest request)
+    {
+        var folder = await _fileService.CreateFolderAsync(request.FolderName, request.ParentId, UserId);
+        return Ok(new FileDto(
+            folder.Id,
+            folder.FileName,
+            folder.FileSize,
+            folder.ContentType,
+            User.Identity?.Name ?? "Unknown",
+            folder.UploadTime,
+            folder.ShareToken,
+            folder.IsPublic,
+            folder.IsFolder
+        ));
     }
 
     [HttpPost("upload")]
     [DisableRequestSizeLimit] // For large files
     [RequestFormLimits(MultipartBodyLengthLimit = 21474836480)] // 20GB
-    public async Task<ActionResult<FileDto>> Upload(IFormFile file)
+    public async Task<ActionResult<FileDto>> Upload(IFormFile file, [FromForm] int? parentId = null)
     {
         if (file == null || file.Length == 0) return BadRequest("No file uploaded");
 
-        var sharedFile = await _fileService.UploadFileAsync(file, UserId);
+        var sharedFile = await _fileService.UploadFileAsync(file, UserId, parentId);
         return Ok(new FileDto(
             sharedFile.Id,
             sharedFile.FileName,
@@ -44,7 +70,8 @@ public class FileController : ControllerBase
             User.Identity?.Name ?? "Unknown",
             sharedFile.UploadTime,
             sharedFile.ShareToken,
-            sharedFile.IsPublic
+            sharedFile.IsPublic,
+            sharedFile.IsFolder
         ));
     }
 
@@ -66,7 +93,7 @@ public class FileController : ControllerBase
     [HttpPost("upload/chunk/finish/{uploadId}")]
     public async Task<ActionResult<FileDto>> FinishChunk(string uploadId, [FromBody] ChunkUploadFinishRequest request)
     {
-        var sharedFile = await _fileService.FinishChunkUploadAsync(uploadId, request.FileName, UserId);
+        var sharedFile = await _fileService.FinishChunkUploadAsync(uploadId, request.FileName, UserId, request.ParentId);
         return Ok(new FileDto(
             sharedFile.Id,
             sharedFile.FileName,
@@ -75,7 +102,8 @@ public class FileController : ControllerBase
             User.Identity?.Name ?? "Unknown",
             sharedFile.UploadTime,
             sharedFile.ShareToken,
-            sharedFile.IsPublic
+            sharedFile.IsPublic,
+            sharedFile.IsFolder
         ));
     }
 

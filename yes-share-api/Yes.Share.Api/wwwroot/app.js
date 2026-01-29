@@ -1,6 +1,9 @@
 const API_URL = '/api';
 let currentUser = null;
 let token = localStorage.getItem('token');
+let currentFolderId = null;
+let autoRefreshTimer = null;
+let currentFolderPath = [];
 
 // --- Auth & Init ---
 
@@ -116,24 +119,66 @@ document.querySelectorAll('.nav-link').forEach(link => {
 
 async function loadFiles() {
     const content = document.getElementById('content-area');
+    
+    // Breadcrumbs HTML
+    const breadcrumbs = `
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb">
+                <li class="breadcrumb-item"><a href="#" onclick="enterFolder(null)">首页</a></li>
+                ${currentFolderPath.map((f, i) => `
+                    <li class="breadcrumb-item ${i === currentFolderPath.length - 1 ? 'active' : ''}">
+                        ${i === currentFolderPath.length - 1 ? f.fileName : `<a href="#" onclick="enterFolder(${f.id})">${f.fileName}</a>`}
+                    </li>
+                `).join('')}
+            </ol>
+        </nav>
+    `;
+
     content.innerHTML = `
-        <div class="d-flex justify-content-between align-items-center mb-3">
+        ${breadcrumbs}
+        <div class="d-flex justify-content-between align-items-center mb-3 toolbar-area">
             <h3>文件列表</h3>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2 align-items-center">
+                <!-- Search -->
+                <!--<div class="input-group input-group-sm" style="width: 200px;">
+                    <input type="text" class="form-control" id="search-input" placeholder="搜索文件名...">
+                    <button class="btn btn-outline-secondary" onclick="performSearch()">🔍</button>
+                </div>-->
+
+                <!-- Auto Refresh -->
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text">自动刷新</span>
+                    <select class="form-select" id="refresh-rate" onchange="changeRefreshRate(this.value)">
+                        <option value="0">关闭</option>
+                        <option value="1000">1秒</option>
+                        <option value="3000">3秒</option>
+                        <option value="5000">5秒</option>
+                    </select>
+                    <button class="btn btn-outline-secondary" onclick="loadFiles()">立即刷新</button>
+                </div>
+
+                <!-- Actions -->
+                <button class="btn btn-outline-success" onclick="createFolderPrompt()">+📁</button>
                 <input type="file" id="file-input" multiple style="display:none">
-                <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">上传文件</button>
+                <button class="btn btn-primary"  onclick="document.getElementById('file-input').click()">+📄</button>
             </div>
         </div>
+        
+        <!-- Drag Drop Zone -->
+        <div id="drop-zone" class="drag-drop-zone mb-3">
+            拖拽文件到此处上传
+        </div>
+
         <div id="upload-progress-container"></div>
-        <div class="table-responsive">
-            <table class="table table-hover">
+        <div class="file-list-container">
+            <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
-                        <th>文件名</th>
-                        <th>大小</th>
-                        <th>上传者</th>
-                        <th>时间</th>
-                        <th>操作</th>
+                        <th style="width: 35%">文件名</th>
+                        <th style="width: 10%">大小</th>
+                        <th style="width: 15%">上传者</th>
+                        <th style="width: 20%">时间</th>
+                        <th style="width: 20%">操作</th>
                     </tr>
                 </thead>
                 <tbody id="file-list-body">
@@ -143,88 +188,314 @@ async function loadFiles() {
         </div>
     `;
     
+    // Setup Events
     document.getElementById('file-input').addEventListener('change', handleUpload);
+    /*document.getElementById('search-input').addEventListener('keypress', (e) => {
+        if(e.key === 'Enter') performSearch();
+    });*/
+    setupDragDrop();
+    
+    // Restore refresh rate selection if set
+    const savedRate = localStorage.getItem('refreshRate');
+    if(savedRate) {
+        document.getElementById('refresh-rate').value = savedRate;
+        if(savedRate !== '0' && !autoRefreshTimer) {
+             changeRefreshRate(savedRate); // Activate logic
+        }
+    }
 
     try {
-        const res = await authFetch(`${API_URL}/file`);
+        const searchText = document.getElementById('search-input')?.value;
+        let url = currentFolderId ? `${API_URL}/file?parentId=${currentFolderId}` : `${API_URL}/file`;
+        
+        // If searching, append param
+        if(searchText) {
+            // Note: Our backend implementation currently ignores parentId if search is present (global search).
+            // But we append it anyway or construct new url.
+            // If backend logic: "If search provided, ignore parentId", then just ?search=...
+            // Let's use ?search=...&parentId=... just in case we change logic later, 
+            // but currently backend priority is search > parentId.
+            // To be clean:
+            url = `${API_URL}/file?search=${encodeURIComponent(searchText)}`;
+            // If we want search within folder, we need backend support. Current backend is global search.
+        }
+
+        const res = await authFetch(url);
         const files = await res.json();
         renderFileList(files);
+        
+        // Restore search text input focus/value if re-rendered? 
+        // Since we re-render whole content-area, input is lost. 
+        // We need to set value back.
+        if(document.getElementById('search-input')) {
+             document.getElementById('search-input').value = searchText || '';
+             document.getElementById('search-input').focus();
+        }
     } catch (err) {
         content.innerHTML = `<div class="alert alert-danger">加载失败: ${err.message}</div>`;
     }
 }
 
+async function performSearch() {
+    await loadFiles();
+}
+
+function changeRefreshRate(val) {
+    localStorage.setItem('refreshRate', val);
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    
+    const ms = parseInt(val);
+    if (ms > 0) {
+        autoRefreshTimer = setInterval(() => {
+             // Only refresh if file list is visible to avoid errors or weird behavior
+             if(document.getElementById('file-list-body')) {
+                 silentReloadFiles();
+             } else {
+                 clearInterval(autoRefreshTimer);
+             }
+        }, ms);
+    }
+}
+
+async function silentReloadFiles() {
+    try {
+        const searchText = document.getElementById('search-input')?.value;
+        let url = currentFolderId ? `${API_URL}/file?parentId=${currentFolderId}` : `${API_URL}/file`;
+        if(searchText) url = `${API_URL}/file?search=${encodeURIComponent(searchText)}`;
+        
+        const res = await authFetch(url);
+        const files = await res.json();
+        renderFileList(files);
+    } catch (err) {
+        console.error("Auto-refresh failed", err);
+    }
+}
+
 function renderFileList(files) {
     const tbody = document.getElementById('file-list-body');
+    if (!tbody) return;
+    
     if (files.length === 0) {
         tbody.innerHTML = '<tr><td colspan="5" class="text-center">暂无文件</td></tr>';
         return;
     }
     
-    tbody.innerHTML = files.map(f => `
-        <tr>
-            <td>${f.fileName} ${f.isPublic ? '<span class="badge bg-success">公开</span>' : ''}</td>
-            <td>${formatSize(f.fileSize)}</td>
-            <td>${f.uploaderName}</td>
-            <td>${new Date(f.uploadTime).toLocaleString()}</td>
-            <td>
+    tbody.innerHTML = files.map(f => {
+        let icon = '📄';
+        let nameHtml = f.fileName;
+        let sizeHtml = formatSize(f.fileSize);
+        let actionHtml = '';
+        
+        if (f.isFolder) {
+            icon = '📁';
+            nameHtml = `<a class="folder-link" onclick="enterFolder(${f.id})">${f.fileName}</a>`;
+            sizeHtml = '-';
+            actionHtml = `
+                 ${(currentUser.role === 'Admin' || f.uploaderName === currentUser.username) ? 
+                    `<button class="btn btn-outline-danger btn-sm" onclick="deleteFile(${f.id})">删除</button>` : ''}
+            `;
+        } else {
+            // Image Preview Events
+            const isImg = isImage(f.fileName);
+            let imgPreviewAttr = '';
+            if (isImg) {
+                // nameHtml = `<span class="file-name-span" onmouseenter="showImgPreview(event, '${f.shareLink}')" onmouseleave="hideImgPreview()">${f.fileName}</span>`;
+                // Changed to click preview
+                nameHtml = `<a href="#" onclick="openImagePreview('${f.shareLink}', '${f.fileName}')">${f.fileName}</a>`;
+            }
+            
+            actionHtml = `
                 <div class="btn-group btn-group-sm">
                     <button class="btn btn-outline-primary" onclick="downloadFile(${f.id}, '${f.shareLink}')">下载</button>
                     ${canPreview(f.fileName) ? `<button class="btn btn-outline-info" onclick="previewFile(${f.id})">预览</button>` : ''}
-                    <button class="btn btn-outline-secondary" onclick="copyLink('${f.shareLink}')">分享链接</button>
+                    ${isImg ? `<button class="btn btn-outline-info" onclick="openImagePreview('${f.shareLink}', '${f.fileName}')">查看</button>` : ''}
+                    <button class="btn btn-outline-secondary" onclick="copyLink('${f.shareLink}')">分享</button>
                     ${(currentUser.role === 'Admin' || f.uploaderName === currentUser.username) ? 
                         `<button class="btn btn-outline-danger" onclick="deleteFile(${f.id})">删除</button>` : ''}
                 </div>
+            `;
+        }
+        
+        return `
+        <tr>
+            <td>
+                ${icon} ${nameHtml}
+                ${f.isPublic ? '<span class="badge bg-success ms-1">公开</span>' : ''}
             </td>
+            <td>${sizeHtml}</td>
+            <td>${f.uploaderName}</td>
+            <td>${new Date(f.uploadTime).toLocaleString()}</td>
+            <td>${actionHtml}</td>
         </tr>
-    `).join('');
+    `}).join('');
+}
+
+// --- Folder Logic ---
+
+async function enterFolder(folderId) {
+    if (folderId === null) {
+        currentFolderId = null;
+        currentFolderPath = [];
+    } else {
+        // Fetch folder path to rebuild breadcrumbs correctly or push
+        // Ideally backend returns path. For now, simple push if moving down. 
+        // But clicking breadcrumb needs rebuild.
+        // Let's fetch path from API.
+        try {
+            const res = await authFetch(`${API_URL}/file/path?folderId=${folderId}`);
+            currentFolderPath = await res.json();
+            currentFolderId = folderId;
+        } catch(e) { alert(e.message); return; }
+    }
+    loadFiles();
+}
+
+async function createFolderPrompt() {
+    const name = prompt("请输入文件夹名称:");
+    if (!name) return;
+    
+    try {
+        const res = await authFetch(`${API_URL}/file/folder`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ folderName: name, parentId: currentFolderId })
+        });
+        if(!res.ok) throw new Error("创建失败");
+        loadFiles();
+    } catch (e) {
+        alert(e.message);
+    }
+}
+
+// --- Image Preview ---
+function isImage(name) {
+    const ext = name.split('.').pop().toLowerCase();
+    return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+}
+
+function openImagePreview(shareToken, fileName) {
+    const modal = new bootstrap.Modal(document.getElementById('imagePreviewModal'));
+    const img = document.getElementById('preview-image-modal-img');
+    
+    // Reset src to avoid showing previous image
+    img.src = '';
+    img.src = `${API_URL}/file/share/${shareToken}?access_token=${token}`;
+    
+    modal.show();
+}
+
+function showImgPreview(e, shareToken) {
+    // Deprecated
+}
+
+function hideImgPreview() {
+    // Deprecated
 }
 
 // --- Upload Logic ---
 
-async function handleUpload(e) {
-    const files = Array.from(e.target.files);
-    if (!files.length) return;
+function setupDragDrop() {
+    const dropZone = document.getElementById('drop-zone');
+    
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.style.background = '#e9ecef';
+    });
+    
+    dropZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        dropZone.style.background = 'white';
+    });
+    
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.style.background = 'white';
+        const files = e.dataTransfer.files;
+        handleFiles(files);
+    });
+}
+
+function handleUpload(e) {
+    handleFiles(e.target.files);
+}
+
+async function handleFiles(files) {
+    const fileList = Array.from(files);
+    if (!fileList.length) return;
     
     const container = document.getElementById('upload-progress-container');
     
-    for (const file of files) {
-        const progressId = `prog-${Date.now()}`;
+    // Queue Logic could be added here, currently parallel with concurrency limit by browser
+    for (const file of fileList) {
+        const progressId = `prog-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const abortCtrl = new AbortController();
+        
         container.innerHTML += `
-            <div class="mb-2" id="${progressId}-box">
-                <div class="d-flex justify-content-between">
-                    <span>${file.name}</span>
-                    <span id="${progressId}-text">0%</span>
+            <div class="mb-2 p-2 border rounded bg-white shadow-sm" id="${progressId}-box">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-truncate" style="max-width: 70%">${file.name}</span>
+                    <div>
+                        <span id="${progressId}-text" class="me-2 small">等待中...</span>
+                        <button class="btn btn-sm btn-outline-danger py-0" onclick="abortUpload('${progressId}')">取消</button>
+                    </div>
                 </div>
-                <div class="progress">
+                <div class="progress" style="height: 5px;">
                     <div id="${progressId}" class="progress-bar" style="width: 0%"></div>
                 </div>
             </div>
         `;
         
+        // Store abort controller globally or in a map to access it via onclick
+        window[`abort_${progressId}`] = abortCtrl;
+        
         try {
-            if (file.size > 10 * 1024 * 1024) { // > 10MB use chunked
-                await uploadChunked(file, progressId);
+            if (file.size > 10 * 1024 * 1024) { // > 10MB
+                await uploadChunked(file, progressId, abortCtrl);
             } else {
-                await uploadSingle(file, progressId);
+                await uploadSingle(file, progressId, abortCtrl);
             }
-            document.getElementById(`${progressId}-box`).remove(); // Remove on success
-            loadFiles(); // Refresh
+            
+            // Success
+            const box = document.getElementById(`${progressId}-box`);
+            if(box) {
+                box.classList.remove('bg-white');
+                box.classList.add('bg-success', 'bg-opacity-10');
+                document.getElementById(`${progressId}-text`).textContent = '完成';
+                setTimeout(() => box.remove(), 2000); // Remove after delay
+            }
         } catch (err) {
-            document.getElementById(`${progressId}-text`).textContent = 'Failed: ' + err.message;
-            document.getElementById(`${progressId}`).classList.add('bg-danger');
+            if (err.name === 'AbortError') {
+                 document.getElementById(`${progressId}-text`).textContent = '已取消';
+            } else {
+                 document.getElementById(`${progressId}-text`).textContent = '失败';
+                 document.getElementById(`${progressId}`).classList.add('bg-danger');
+                 console.error(err);
+            }
         }
+        
+        delete window[`abort_${progressId}`];
     }
+    loadFiles(); // Refresh once batch started/done
 }
 
-async function uploadSingle(file, progressId) {
+window.abortUpload = (id) => {
+    const ctrl = window[`abort_${id}`];
+    if (ctrl) ctrl.abort();
+    document.getElementById(`${id}-box`)?.remove();
+};
+
+async function uploadSingle(file, progressId, abortCtrl) {
     const formData = new FormData();
     formData.append('file', file);
+    if (currentFolderId) formData.append('parentId', currentFolderId);
     
     const xhr = new XMLHttpRequest();
     return new Promise((resolve, reject) => {
         xhr.open('POST', `${API_URL}/file/upload`);
         xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        
+        // Link abort
+        abortCtrl.signal.addEventListener('abort', () => xhr.abort());
         
         xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
@@ -238,18 +509,26 @@ async function uploadSingle(file, progressId) {
             else reject(new Error(xhr.statusText));
         };
         xhr.onerror = () => reject(new Error('Network Error'));
+        xhr.onabort = () => reject(new DOMException('Aborted', 'AbortError'));
         
         xhr.send(formData);
     });
 }
 
-async function uploadChunked(file, progressId) {
+async function uploadChunked(file, progressId, abortCtrl) {
+    if (abortCtrl.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
     // 1. Init
-    const initRes = await authFetch(`${API_URL}/file/upload/chunk/init`, {
+    const initRes = await fetch(`${API_URL}/file/upload/chunk/init`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ fileName: file.name, totalSize: file.size })
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ fileName: file.name, totalSize: file.size, parentId: currentFolderId }),
+        signal: abortCtrl.signal
     });
+    if(!initRes.ok) throw new Error("Init failed");
     const { uploadId } = await initRes.json();
     
     // 2. Chunks
@@ -257,15 +536,19 @@ async function uploadChunked(file, progressId) {
     let offset = 0;
     
     while (offset < file.size) {
+        if (abortCtrl.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+        
         const chunk = file.slice(offset, offset + CHUNK_SIZE);
         const formData = new FormData();
         formData.append('chunk', chunk);
         
-        await fetch(`${API_URL}/file/upload/chunk/append/${uploadId}`, {
+        const res = await fetch(`${API_URL}/file/upload/chunk/append/${uploadId}`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` },
-            body: formData
-        }); // Simple fetch, assume success or throw
+            body: formData,
+            signal: abortCtrl.signal
+        });
+        if(!res.ok) throw new Error("Chunk upload failed");
         
         offset += chunk.size;
         const percent = Math.round((offset / file.size) * 100);
@@ -273,10 +556,14 @@ async function uploadChunked(file, progressId) {
     }
     
     // 3. Finish
-    await authFetch(`${API_URL}/file/upload/chunk/finish/${uploadId}`, {
+    await fetch(`${API_URL}/file/upload/chunk/finish/${uploadId}`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ uploadId, fileName: file.name })
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ uploadId, fileName: file.name, parentId: currentFolderId }),
+        signal: abortCtrl.signal
     });
 }
 

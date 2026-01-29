@@ -29,5 +29,11 @@ public class AppDbContext : DbContext
             .WithMany(f => f.Permissions)
             .HasForeignKey(p => p.SharedFileId)
             .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<SharedFile>()
+            .HasOne(f => f.Parent)
+            .WithMany(f => f.Children)
+            .HasForeignKey(f => f.ParentId)
+            .OnDelete(DeleteBehavior.Cascade); // Delete folder deletes children
     }
 }

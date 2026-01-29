@@ -1,6 +1,66 @@
-body {
-    background-color: #f8f9fa;
+/* Fixed Header Layout */
+body, html {
+    height: 100%;
+    overflow: hidden; /* Prevent body scroll */
 }
+
+#app-view {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.navbar {
+    flex-shrink: 0;
+}
+
+#content-area {
+    flex-grow: 1;
+    overflow: hidden; /* Contain scroll */
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 0 !important; /* Remove bottom padding to fit */
+}
+
+/* File List Scroll Area */
+.file-list-container {
+    flex-grow: 1;
+    overflow-y: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    background: white;
+}
+
+.table thead th {
+    position: sticky;
+    top: 0;
+    background: #f8f9fa; /* Match body bg or white */
+    z-index: 1;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.drag-drop-zone {
+    flex-shrink: 0;
+}
+
+.toolbar-area {
+    flex-shrink: 0;
+}
+
+/* Breadcrumb area */
+nav[aria-label="breadcrumb"] {
+    flex-shrink: 0;
+}
+
+/* Image Preview Modal Custom */
+#preview-image-modal-img {
+    max-width: 100%;
+    max-height: 80vh;
+    object-fit: contain;
+    display: block;
+    margin: 0 auto;
+}
+
 pre {
     background: #f4f4f4;
     padding: 15px;
@@ -17,3 +77,37 @@ pre {
 .drag-drop-zone:hover {
     background: #e9ecef;
 }
+
+/* Image Preview Tooltip */
+.img-preview-tooltip {
+    position: fixed;
+    border: 1px solid #ccc;
+    background: #fff;
+    padding: 5px;
+    z-index: 1050;
+    box-shadow: 0 0 10px rgba(0,0,0,0.2);
+    display: none;
+    max-width: 210px;
+    max-height: 210px;
+}
+.img-preview-tooltip img {
+    max-width: 200px;
+    max-height: 200px;
+    object-fit: contain;
+}
+
+.folder-link {
+    cursor: pointer;
+    font-weight: bold;
+    color: #0d6efd;
+    text-decoration: none;
+}
+.folder-link:hover {
+    text-decoration: underline;
+}
+
+.breadcrumb-item a {
+    cursor: pointer;
+    text-decoration: none;
+}
+

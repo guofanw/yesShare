@@ -18,4 +18,10 @@ public class SharedFile
     // Permissions
     public bool IsPublic { get; set; } = false; // If true, anyone can access
     public List<FilePermission> Permissions { get; set; } = new();
+
+    // Folder support
+    public bool IsFolder { get; set; } = false;
+    public int? ParentId { get; set; }
+    public SharedFile? Parent { get; set; }
+    public List<SharedFile> Children { get; set; } = new();
 }
