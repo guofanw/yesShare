@@ -4,6 +4,160 @@ let token = localStorage.getItem('token');
 let currentFolderId = null;
 let autoRefreshTimer = null;
 let currentFolderPath = [];
+let currentLang = localStorage.getItem('lang') || 'zh-CN';
+
+const i18n = {
+    'zh-CN': {
+        title: 'Yes.Share - 局域网文件共享',
+        loginTitle: 'Yes.Share 登录',
+        username: '用户名',
+        password: '密码',
+        login: '登录',
+        register: '注册',
+        files: '文件列表',
+        dashboard: '系统看板',
+        logout: '退出',
+        user: '用户',
+        home: '首页',
+        autoRefresh: '自动刷新',
+        refreshOff: '关闭',
+        refresh1s: '1秒',
+        refresh3s: '3秒',
+        refresh5s: '5秒',
+        refreshNow: '立即刷新',
+        newFolder: '新建文件夹',
+        upload: '上传文件',
+        dragDrop: '拖拽文件到此处上传',
+        fileName: '文件名',
+        size: '大小',
+        uploader: '上传者',
+        time: '时间',
+        action: '操作',
+        loading: '加载中...',
+        empty: '暂无文件',
+        public: '公开',
+        download: '下载',
+        preview: '预览',
+        view: '查看',
+        share: '分享',
+        delete: '删除',
+        onlineUsers: '在线用户',
+        todayUpload: '今日上传',
+        todayDownload: '今日下载',
+        storage: '存储使用',
+        recentLogs: '最近日志',
+        logTime: '时间',
+        logUser: '用户',
+        logAction: '操作',
+        logDetails: '详情',
+        copySuccess: '已复制',
+        shareLinkCopy: '分享链接已复制: ',
+        confirmDelete: '确定删除吗？',
+        createFolderPrompt: '请输入文件夹名称:',
+        searchPlaceholder: '搜索文件名...',
+        filePreview: '文件预览',
+        copyFull: '复制全文',
+        close: '关闭'
+    },
+    'en-US': {
+        title: 'Yes.Share - LAN File Sharing',
+        loginTitle: 'Yes.Share Login',
+        username: 'Username',
+        password: 'Password',
+        login: 'Login',
+        register: 'Register',
+        files: 'Files',
+        dashboard: 'Dashboard',
+        logout: 'Logout',
+        user: 'User',
+        home: 'Home',
+        autoRefresh: 'Auto Refresh',
+        refreshOff: 'Off',
+        refresh1s: '1s',
+        refresh3s: '3s',
+        refresh5s: '5s',
+        refreshNow: 'Refresh Now',
+        newFolder: 'New Folder',
+        upload: 'Upload',
+        dragDrop: 'Drag & Drop files here',
+        fileName: 'Name',
+        size: 'Size',
+        uploader: 'Uploader',
+        time: 'Date',
+        action: 'Actions',
+        loading: 'Loading...',
+        empty: 'No files',
+        public: 'Public',
+        download: 'Download',
+        preview: 'Preview',
+        view: 'View',
+        share: 'Share',
+        delete: 'Delete',
+        onlineUsers: 'Online Users',
+        todayUpload: 'Today Uploads',
+        todayDownload: 'Today Downloads',
+        storage: 'Storage',
+        recentLogs: 'Recent Logs',
+        logTime: 'Time',
+        logUser: 'User',
+        logAction: 'Action',
+        logDetails: 'Details',
+        copySuccess: 'Copied',
+        shareLinkCopy: 'Share link copied: ',
+        confirmDelete: 'Are you sure to delete?',
+        createFolderPrompt: 'Enter folder name:',
+        searchPlaceholder: 'Search files...',
+        filePreview: 'File Preview',
+        copyFull: 'Copy All',
+        close: 'Close'
+    }
+};
+
+function t(key) {
+    return i18n[currentLang][key] || key;
+}
+
+function setLang(lang) {
+    currentLang = lang;
+    localStorage.setItem('lang', lang);
+    
+    // Sync selectors
+    const s1 = document.getElementById('lang-select');
+    const s2 = document.getElementById('lang-select-login');
+    if(s1) s1.value = lang;
+    if(s2) s2.value = lang;
+
+    updateUI();
+    if(currentUser) loadFiles(); // Reload content
+}
+
+function updateUI() {
+    document.title = t('title');
+    
+    // Static Elements
+    const safeSet = (id, key) => {
+        const el = document.getElementById(id);
+        if(el) el.textContent = t(key);
+    };
+    
+    // Login View
+    safeSet('login-title', 'loginTitle');
+    safeSet('lbl-username', 'username');
+    safeSet('lbl-password', 'password');
+    safeSet('btn-login', 'login');
+    safeSet('btn-register-mode', 'register');
+    
+    // Navbar
+    safeSet('nav-files', 'files');
+    safeSet('nav-dashboard', 'dashboard');
+    safeSet('btn-logout', 'logout');
+    
+    // Modals
+    safeSet('modal-preview-title', 'filePreview');
+    safeSet('btn-copy-preview', 'copyFull');
+    safeSet('btn-close-preview', 'close');
+    // ... more dynamic updates in render functions
+}
 
 // --- Auth & Init ---
 
@@ -118,13 +272,15 @@ document.querySelectorAll('.nav-link').forEach(link => {
 // --- Files ---
 
 async function loadFiles() {
+    // Capture search text BEFORE overwriting innerHTML
+    const searchText = document.getElementById('search-input')?.value;
     const content = document.getElementById('content-area');
     
     // Breadcrumbs HTML
     const breadcrumbs = `
         <nav aria-label="breadcrumb">
             <ol class="breadcrumb">
-                <li class="breadcrumb-item"><a href="#" onclick="enterFolder(null)">首页</a></li>
+                <li class="breadcrumb-item"><a href="#" onclick="enterFolder(null)">${t('home')}</a></li>
                 ${currentFolderPath.map((f, i) => `
                     <li class="breadcrumb-item ${i === currentFolderPath.length - 1 ? 'active' : ''}">
                         ${i === currentFolderPath.length - 1 ? f.fileName : `<a href="#" onclick="enterFolder(${f.id})">${f.fileName}</a>`}
@@ -137,36 +293,36 @@ async function loadFiles() {
     content.innerHTML = `
         ${breadcrumbs}
         <div class="d-flex justify-content-between align-items-center mb-3 toolbar-area">
-            <h3>文件列表</h3>
+            <h3>${t('files')}</h3>
             <div class="d-flex gap-2 align-items-center">
                 <!-- Search -->
-                <!--<div class="input-group input-group-sm" style="width: 200px;">
-                    <input type="text" class="form-control" id="search-input" placeholder="搜索文件名...">
+                <div class="input-group input-group-sm" style="width: 300px;">
+                    <input type="text" class="form-control" id="search-input" placeholder="${t('searchPlaceholder')}">
                     <button class="btn btn-outline-secondary" onclick="performSearch()">🔍</button>
-                </div>-->
+                </div>
 
                 <!-- Auto Refresh -->
                 <div class="input-group input-group-sm">
-                    <span class="input-group-text">自动刷新</span>
+                    <span class="input-group-text">${t('autoRefresh')}</span>
                     <select class="form-select" id="refresh-rate" onchange="changeRefreshRate(this.value)">
-                        <option value="0">关闭</option>
-                        <option value="1000">1秒</option>
-                        <option value="3000">3秒</option>
-                        <option value="5000">5秒</option>
+                        <option value="0">${t('refreshOff')}</option>
+                        <option value="1000">${t('refresh1s')}</option>
+                        <option value="3000">${t('refresh3s')}</option>
+                        <option value="5000">${t('refresh5s')}</option>
                     </select>
-                    <button class="btn btn-outline-secondary" onclick="loadFiles()">立即刷新</button>
+                    <button class="btn btn-outline-secondary" onclick="loadFiles()">${t('refreshNow')}</button>
                 </div>
 
                 <!-- Actions -->
-                <button class="btn btn-outline-success" onclick="createFolderPrompt()">+📁</button>
+                <button class="btn btn-outline-success" onclick="createFolderPrompt()" title="${t('newFolder')}">+📁</button>
                 <input type="file" id="file-input" multiple style="display:none">
-                <button class="btn btn-primary"  onclick="document.getElementById('file-input').click()">+📄</button>
+                <button class="btn btn-primary" onclick="document.getElementById('file-input').click()" title="${t('upload')}">+📄</button>
             </div>
         </div>
         
         <!-- Drag Drop Zone -->
         <div id="drop-zone" class="drag-drop-zone mb-3">
-            拖拽文件到此处上传
+            ${t('dragDrop')}
         </div>
 
         <div id="upload-progress-container"></div>
@@ -174,15 +330,15 @@ async function loadFiles() {
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
-                        <th style="width: 35%">文件名</th>
-                        <th style="width: 10%">大小</th>
-                        <th style="width: 15%">上传者</th>
-                        <th style="width: 20%">时间</th>
-                        <th style="width: 20%">操作</th>
+                        <th style="width: 35%">${t('fileName')}</th>
+                        <th style="width: 10%">${t('size')}</th>
+                        <th style="width: 15%">${t('uploader')}</th>
+                        <th style="width: 20%">${t('time')}</th>
+                        <th style="width: 20%">${t('action')}</th>
                     </tr>
                 </thead>
                 <tbody id="file-list-body">
-                    <tr><td colspan="5" class="text-center">加载中...</td></tr>
+                    <tr><td colspan="5" class="text-center">${t('loading')}</td></tr>
                 </tbody>
             </table>
         </div>
@@ -190,9 +346,9 @@ async function loadFiles() {
     
     // Setup Events
     document.getElementById('file-input').addEventListener('change', handleUpload);
-    /*document.getElementById('search-input').addEventListener('keypress', (e) => {
+    document.getElementById('search-input').addEventListener('keypress', (e) => {
         if(e.key === 'Enter') performSearch();
-    });*/
+    });
     setupDragDrop();
     
     // Restore refresh rate selection if set
@@ -205,7 +361,7 @@ async function loadFiles() {
     }
 
     try {
-        const searchText = document.getElementById('search-input')?.value;
+        // const searchText = document.getElementById('search-input')?.value; // Moved to top
         let url = currentFolderId ? `${API_URL}/file?parentId=${currentFolderId}` : `${API_URL}/file`;
         
         // If searching, append param
@@ -276,7 +432,7 @@ function renderFileList(files) {
     if (!tbody) return;
     
     if (files.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="text-center">暂无文件</td></tr>';
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center">${t('empty')}</td></tr>`;
         return;
     }
     
@@ -292,7 +448,7 @@ function renderFileList(files) {
             sizeHtml = '-';
             actionHtml = `
                  ${(currentUser.role === 'Admin' || f.uploaderName === currentUser.username) ? 
-                    `<button class="btn btn-outline-danger btn-sm" onclick="deleteFile(${f.id})">删除</button>` : ''}
+                    `<button class="btn btn-outline-danger btn-sm" onclick="deleteFile(${f.id})">${t('delete')}</button>` : ''}
             `;
         } else {
             // Image Preview Events
@@ -306,12 +462,12 @@ function renderFileList(files) {
             
             actionHtml = `
                 <div class="btn-group btn-group-sm">
-                    <button class="btn btn-outline-primary" onclick="downloadFile(${f.id}, '${f.shareLink}')">下载</button>
-                    ${canPreview(f.fileName) ? `<button class="btn btn-outline-info" onclick="previewFile(${f.id})">预览</button>` : ''}
-                    ${isImg ? `<button class="btn btn-outline-info" onclick="openImagePreview('${f.shareLink}', '${f.fileName}')">查看</button>` : ''}
-                    <button class="btn btn-outline-secondary" onclick="copyLink('${f.shareLink}')">分享</button>
+                    <button class="btn btn-outline-primary" onclick="downloadFile(${f.id}, '${f.shareLink}')">${t('download')}</button>
+                    ${canPreview(f.fileName) ? `<button class="btn btn-outline-info" onclick="previewFile(${f.id})">${t('preview')}</button>` : ''}
+                    ${isImg ? `<button class="btn btn-outline-info" onclick="openImagePreview('${f.shareLink}', '${f.fileName}')">${t('view')}</button>` : ''}
+                    <button class="btn btn-outline-secondary" onclick="copyLink('${f.shareLink}')">${t('share')}</button>
                     ${(currentUser.role === 'Admin' || f.uploaderName === currentUser.username) ? 
-                        `<button class="btn btn-outline-danger" onclick="deleteFile(${f.id})">删除</button>` : ''}
+                        `<button class="btn btn-outline-danger" onclick="deleteFile(${f.id})">${t('delete')}</button>` : ''}
                 </div>
             `;
         }
@@ -320,7 +476,7 @@ function renderFileList(files) {
         <tr>
             <td>
                 ${icon} ${nameHtml}
-                ${f.isPublic ? '<span class="badge bg-success ms-1">公开</span>' : ''}
+                ${f.isPublic ? `<span class="badge bg-success ms-1">${t('public')}</span>` : ''}
             </td>
             <td>${sizeHtml}</td>
             <td>${f.uploaderName}</td>
@@ -351,7 +507,7 @@ async function enterFolder(folderId) {
 }
 
 async function createFolderPrompt() {
-    const name = prompt("请输入文件夹名称:");
+    const name = prompt(t('createFolderPrompt'));
     if (!name) return;
     
     try {
@@ -580,7 +736,7 @@ function updateProgress(id, percent) {
 
 async function loadDashboard() {
     const content = document.getElementById('content-area');
-    content.innerHTML = '<h3>加载系统看板...</h3>';
+    content.innerHTML = `<h3>${t('loading')}</h3>`;
     
     try {
         const res = await authFetch(`${API_URL}/system/dashboard`);
@@ -588,12 +744,12 @@ async function loadDashboard() {
         const data = await res.json();
         
         content.innerHTML = `
-            <h3>系统看板</h3>
+            <h3>${t('dashboard')}</h3>
             <div class="row mt-4">
                 <div class="col-md-3">
                     <div class="card text-white bg-primary mb-3">
                         <div class="card-body">
-                            <h5 class="card-title">在线用户</h5>
+                            <h5 class="card-title">${t('onlineUsers')}</h5>
                             <p class="card-text display-4">${data.onlineUsers}</p>
                         </div>
                     </div>
@@ -601,32 +757,32 @@ async function loadDashboard() {
                 <div class="col-md-3">
                     <div class="card text-white bg-success mb-3">
                         <div class="card-body">
-                            <h5 class="card-title">今日上传</h5>
-                            <p class="card-text">${data.todayStats.uploadCount} 个 (${data.todayStats.uploadSize})</p>
+                            <h5 class="card-title">${t('todayUpload')}</h5>
+                            <p class="card-text">${data.todayStats.uploadCount} (${data.todayStats.uploadSize})</p>
                         </div>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="card text-white bg-info mb-3">
                         <div class="card-body">
-                            <h5 class="card-title">今日下载</h5>
-                            <p class="card-text">${data.todayStats.downloadCount} 次 (${data.todayStats.downloadSize})</p>
+                            <h5 class="card-title">${t('todayDownload')}</h5>
+                            <p class="card-text">${data.todayStats.downloadCount} (${data.todayStats.downloadSize})</p>
                         </div>
                     </div>
                 </div>
                 <div class="col-md-3">
                     <div class="card text-white bg-warning mb-3">
                         <div class="card-body">
-                            <h5 class="card-title">存储使用</h5>
+                            <h5 class="card-title">${t('storage')}</h5>
                             <p class="card-text">${data.storageUsage}</p>
                         </div>
                     </div>
                 </div>
             </div>
             
-            <h4 class="mt-4">最近日志</h4>
+            <h4 class="mt-4">${t('recentLogs')}</h4>
             <table class="table table-striped table-sm">
-                <thead><tr><th>时间</th><th>用户</th><th>操作</th><th>详情</th></tr></thead>
+                <thead><tr><th>${t('logTime')}</th><th>${t('logUser')}</th><th>${t('logAction')}</th><th>${t('logDetails')}</th></tr></thead>
                 <tbody>
                     ${data.recentLogs.map(l => `
                         <tr>
@@ -650,7 +806,7 @@ async function authFetch(url, options = {}) {
     options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
     const res = await fetch(url, options);
     if (res.status === 401) {
-        alert('会话过期，请重新登录');
+        alert('Unauthorized');
         localStorage.removeItem('token');
         showLogin();
         throw new Error('Unauthorized');
@@ -666,28 +822,6 @@ function formatSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-window.downloadFile = (id) => {
-    // Open in new tab to trigger download
-    window.open(`${API_URL}/file/${id}/download?token=`, '_blank');
-    // Note: If authentication is required for non-public files, cookie based or adding token to URL is needed.
-    // Since we use Bearer token, we can't easily use window.open for auth'd download unless we use a query param token or cookie.
-    // For this tool, I added `token` param support in backend (for share links). 
-    // For authenticated users, we might need to pass the JWT in the URL if the browser handles the download,
-    // OR fetch as blob and save. Fetch blob is better for headers but can be memory intensive for 20GB.
-    // Backend should support `?token=USER_JWT` for download endpoint or use cookies.
-    // I'll update download endpoint to accept `token` as the AUTH token too if header missing? 
-    // No, that's insecure if logged.
-    // The clean way: use `fetch` with header -> blob -> objectUrl -> a.click().
-    // But for 20GB file, blob in memory will crash browser.
-    // Solution: Service Worker or Cookies. 
-    // Simplest for this task: Pass the Bearer token as a query parameter `?access_token=...` and handle it in backend.
-    
-    // Let's implement fetch-blob for small files and warn for large? 
-    // Or just append `?access_token=${token}`.
-    // I'll modify backend to look for `access_token` query param for Auth.
-};
-
-// Override downloadFile to use XHR/Blob for small files or just window.location with query param
 window.downloadFile = (id) => {
     // Using query param for auth is easiest for browser download
     window.location.href = `${API_URL}/file/${id}/download?access_token=${token}`;
@@ -714,7 +848,7 @@ window.previewFile = async (id) => {
         
         document.getElementById('btn-copy-preview').onclick = () => {
             navigator.clipboard.writeText(data.content);
-            alert('已复制');
+            alert(t('copySuccess'));
         };
     } catch (err) {
         alert(err.message);
@@ -722,7 +856,7 @@ window.previewFile = async (id) => {
 };
 
 window.deleteFile = async (id) => {
-    if (!confirm('确定删除吗？')) return;
+    if (!confirm(t('confirmDelete'))) return;
     try {
         await authFetch(`${API_URL}/file/${id}`, { method: 'DELETE' });
         loadFiles();
@@ -734,7 +868,12 @@ window.deleteFile = async (id) => {
 window.copyLink = (shareToken) => {
     const link = `${window.location.origin}/api/file/share/${shareToken}`;
     navigator.clipboard.writeText(link);
-    alert('分享链接已复制: ' + link);
+    alert(t('shareLinkCopy') + link);
 };
 
+// Set initial selection
+const langSelect = document.getElementById('lang-select');
+const langSelectLogin = document.getElementById('lang-select-login');
+if (langSelect) langSelect.value = currentLang;
+if (langSelectLogin) langSelectLogin.value = currentLang;
 init();
