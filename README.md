@@ -1,3 +1,5 @@
+
+
 # Yes.Share - 局域网文件共享工具
 
 > 🚀 一个基于 .NET 8 构建的高性能、安全且易于部署的局域网文件共享解决方案。
@@ -30,7 +32,7 @@
 ### 克隆仓库
 
 ```bash
-git clone https://github.com/yourusername/yes-share.git
+git clone https://gitee.com/ndkkztf/yes-share.git
 cd yes-share
 ```
 
@@ -108,15 +110,6 @@ ENTRYPOINT ["dotnet", "Yes.Share.Api.dll"]
 3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 提交 Pull Request
-
-## 🖼️ 项目截图（Project screenshot）
-![输入图片说明](imgs/1.png)
-![输入图片说明](imgs/2.png)
-![输入图片说明](imgs/3.png)
-![输入图片说明](imgs/4.png)
-![输入图片说明](imgs/5.png)
-![输入图片说明](imgs/6.png)
-
 
 ## 📄 许可证 (License)
 
