@@ -196,7 +196,6 @@ function showApp() {
     }
     
     loadFiles();
-    showRecoveredUploads();
 }
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -629,7 +628,9 @@ function hasPendingUploads() {
     }
 }
 
-window.showRecoveredUploads = function() {
+window.showRecoveredUploads = async function() {
+    window.__recoveredSeq = (window.__recoveredSeq || 0) + 1;
+    const seq = window.__recoveredSeq;
     const uploads = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}');
     const now = Date.now();
     const container = document.getElementById('upload-progress-container');
@@ -649,15 +650,33 @@ window.showRecoveredUploads = function() {
         }
     });
 
+    const remainingAll = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}');
+    const byKey = {};
+    Object.entries(remainingAll).forEach(([uploadId, info]) => {
+        const key = `${info.fileName}|${info.fileSize}|${info.lastModified}|${info.parentId ?? ''}`;
+        byKey[key] = byKey[key] || [];
+        byKey[key].push({ uploadId, info });
+    });
+    Object.values(byKey).forEach((arr) => {
+        if (arr.length <= 1) return;
+        arr.sort((a, b) => (b.info.timestamp || 0) - (a.info.timestamp || 0));
+        const stale = arr.slice(1);
+        stale.forEach(({ uploadId }) => {
+            authFetch(`${API_URL}/file/upload/chunk/cancel/${uploadId}`, { method: 'POST' }).catch(() => {});
+            clearUploadState(uploadId);
+        });
+    });
+
     const remaining = Object.keys(JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}'));
     if (!remaining.length) return;
 
-    container.innerHTML += `
+    if (seq !== window.__recoveredSeq) return;
+    container.insertAdjacentHTML('beforeend', `
         <div class="alert alert-warning mb-2" role="alert" id="recovered-warning" data-recovered="1">
             检测到 ${remaining.length} 个未完成的上传。刷新后浏览器无法继续读取文件内容，需要重新选择同一文件才能续传。
             <button class="btn btn-sm btn-outline-warning ms-2" onclick="clearAllUploadState(); location.reload();">清除记录</button>
         </div>
-    `;
+    `);
 
     if (!document.getElementById('resume-file-input')) {
         const input = document.createElement('input');
@@ -678,7 +697,8 @@ window.showRecoveredUploads = function() {
         document.body.appendChild(input);
     }
 
-    remaining.forEach(async (uploadId) => {
+    for (const uploadId of remaining) {
+        if (seq !== window.__recoveredSeq) return;
         const info = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}')[uploadId];
         if (!info) return;
 
@@ -688,7 +708,8 @@ window.showRecoveredUploads = function() {
             if (!res.ok) throw new Error(await res.text());
             status = await res.json();
         } catch (e) {
-            container.innerHTML += `
+            if (seq !== window.__recoveredSeq) return;
+            container.insertAdjacentHTML('beforeend', `
                 <div class="mb-2 p-2 border rounded bg-white shadow-sm" data-recovered="1">
                     <div class="d-flex justify-content-between align-items-center mb-1">
                         <span class="text-truncate" style="max-width: 70%">${info.fileName}</span>
@@ -699,14 +720,15 @@ window.showRecoveredUploads = function() {
                     </div>
                     <div class="small text-muted">${uploadId}</div>
                 </div>
-            `;
+            `);
             return;
         }
 
         const percent = status.totalSize ? Math.round((status.receivedSize / status.totalSize) * 100) : 0;
         const boxId = `recovered-${uploadId}`;
 
-        container.innerHTML += `
+        if (seq !== window.__recoveredSeq) return;
+        container.insertAdjacentHTML('beforeend', `
             <div class="mb-2 p-2 border rounded bg-white shadow-sm" id="${boxId}" data-recovered="1">
                 <div class="d-flex justify-content-between align-items-center mb-1">
                     <span class="text-truncate" style="max-width: 70%">${status.fileName}</span>
@@ -721,8 +743,8 @@ window.showRecoveredUploads = function() {
                 </div>
                 <div class="small text-muted">${status.receivedSize} / ${status.totalSize}</div>
             </div>
-        `;
-    });
+        `);
+    }
 };
 
 window.promptResumeUpload = (uploadId) => {
@@ -783,11 +805,8 @@ async function handleFiles(files) {
         window[`abort_${progressId}`] = abortCtrl;
         
         try {
-            if (file.size > 10 * 1024 * 1024) { // > 10MB
-                chunkUploadId = await uploadChunked(file, progressId, abortCtrl);
-            } else {
-                await uploadSingle(file, progressId, abortCtrl);
-            }
+            if (!file.size) throw new Error('Empty file');
+            chunkUploadId = await uploadChunked(file, progressId, abortCtrl);
             
             // Success
             if (chunkUploadId) clearUploadState(chunkUploadId);
