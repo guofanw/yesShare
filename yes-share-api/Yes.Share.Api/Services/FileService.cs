@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Yes.Share.Api.Data;
 using Yes.Share.Api.Dtos;
@@ -10,13 +11,25 @@ public class FileService : IFileService
     private readonly AppDbContext _context;
     private readonly string _uploadPath;
     private readonly string _tempPath;
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+
+    private sealed record ChunkUploadMeta(string UploadId, string FileName, long TotalSize, int UploaderId, int? ParentId, DateTime CreatedAtUtc);
+
+    private string GetChunkTempFilePath(string uploadId) => Path.Combine(_tempPath, uploadId);
+    private string GetChunkMetaPath(string uploadId) => Path.Combine(_tempPath, $"{uploadId}.meta.json");
 
     public FileService(AppDbContext context, IConfiguration configuration)
     {
         _context = context;
-        _uploadPath = configuration["FileStorage:UploadPath"] ?? "Uploads";
+        var basePath = AppDomain.CurrentDomain.BaseDirectory;
+        _uploadPath = Path.IsPathRooted(configuration["FileStorage:UploadPath"] ?? "Uploads")
+            ? configuration["FileStorage:UploadPath"]!
+            : Path.Combine(basePath, configuration["FileStorage:UploadPath"] ?? "Uploads");
         _tempPath = Path.Combine(_uploadPath, "Temp");
-        
+
+        Console.WriteLine($"[FileService] UploadPath: {_uploadPath}");
+        Console.WriteLine($"[FileService] TempPath: {_tempPath}");
+
         if (!Directory.Exists(_uploadPath)) Directory.CreateDirectory(_uploadPath);
         if (!Directory.Exists(_tempPath)) Directory.CreateDirectory(_tempPath);
     }
@@ -80,36 +93,144 @@ public class FileService : IFileService
     public Task<string> InitChunkUploadAsync(ChunkUploadInitRequest request, int uploaderId)
     {
         var uploadId = Guid.NewGuid().ToString("N");
-        // We could store metadata about this upload in DB or a memory cache, 
-        // but for simplicity we just rely on the temp file existence.
-        // Or create a 0-byte file.
-        var filePath = Path.Combine(_tempPath, uploadId);
-        // Create empty file
+        var filePath = GetChunkTempFilePath(uploadId);
+        var metaPath = GetChunkMetaPath(uploadId);
+
         System.IO.File.Create(filePath).Dispose();
+
+        var meta = new ChunkUploadMeta(
+            uploadId,
+            request.FileName,
+            request.TotalSize,
+            uploaderId,
+            request.ParentId,
+            DateTime.UtcNow
+        );
+        var metaJson = JsonSerializer.Serialize(meta, JsonOptions);
+        System.IO.File.WriteAllText(metaPath, metaJson);
         
         return Task.FromResult(uploadId);
     }
 
-    public async Task AppendChunkAsync(string uploadId, IFormFile chunk)
+    public async Task AppendChunkAsync(string uploadId, Stream chunkStream, int uploaderId)
     {
-        var filePath = Path.Combine(_tempPath, uploadId);
-        if (!System.IO.File.Exists(filePath)) throw new FileNotFoundException("Upload session not found");
+        var filePath = GetChunkTempFilePath(uploadId);
+        var metaPath = GetChunkMetaPath(uploadId);
 
-        using (var stream = new FileStream(filePath, FileMode.Append))
+        if (!System.IO.File.Exists(filePath) || !System.IO.File.Exists(metaPath))
         {
-            await chunk.CopyToAsync(stream);
+            Console.WriteLine($"[FileService] AppendChunkAsync failed: session not found. uploadId={uploadId}");
+            throw new FileNotFoundException("Upload session not found");
         }
+
+        var metaJson = await System.IO.File.ReadAllTextAsync(metaPath);
+        var meta = JsonSerializer.Deserialize<ChunkUploadMeta>(metaJson, JsonOptions);
+        if (meta == null || meta.UploaderId != uploaderId)
+        {
+            throw new UnauthorizedAccessException("Upload session not found");
+        }
+
+        const int bufferSize = 1024 * 128;
+        var buffer = new byte[bufferSize];
+        long bytesWritten = 0;
+
+        using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+        fileStream.Seek(0, SeekOrigin.End);
+        var existingSize = fileStream.Length;
+
+        if (existingSize > meta.TotalSize)
+        {
+            throw new InvalidOperationException("Upload session is corrupted");
+        }
+
+        while (true)
+        {
+            var read = await chunkStream.ReadAsync(buffer.AsMemory(0, buffer.Length));
+            if (read <= 0) break;
+
+            if (existingSize + bytesWritten + read > meta.TotalSize)
+            {
+                throw new InvalidOperationException("Chunk exceeds expected total size");
+            }
+
+            await fileStream.WriteAsync(buffer.AsMemory(0, read));
+            bytesWritten += read;
+        }
+    }
+
+    public async Task<ChunkUploadStatusResponse> GetChunkUploadStatusAsync(string uploadId, int uploaderId)
+    {
+        var filePath = GetChunkTempFilePath(uploadId);
+        var metaPath = GetChunkMetaPath(uploadId);
+
+        if (!System.IO.File.Exists(filePath) || !System.IO.File.Exists(metaPath))
+        {
+            throw new FileNotFoundException("Upload session not found");
+        }
+
+        var metaJson = await System.IO.File.ReadAllTextAsync(metaPath);
+        var meta = JsonSerializer.Deserialize<ChunkUploadMeta>(metaJson, JsonOptions);
+        if (meta == null || meta.UploaderId != uploaderId)
+        {
+            throw new FileNotFoundException("Upload session not found");
+        }
+
+        var received = new FileInfo(filePath).Length;
+        var isFinished = received >= meta.TotalSize;
+        return new ChunkUploadStatusResponse(meta.UploadId, meta.FileName, meta.TotalSize, received, meta.ParentId, isFinished);
+    }
+
+    public Task CancelChunkUploadAsync(string uploadId, int uploaderId)
+    {
+        var filePath = GetChunkTempFilePath(uploadId);
+        var metaPath = GetChunkMetaPath(uploadId);
+
+        if (!System.IO.File.Exists(metaPath))
+        {
+            return Task.CompletedTask;
+        }
+
+        var metaJson = System.IO.File.ReadAllText(metaPath);
+        var meta = JsonSerializer.Deserialize<ChunkUploadMeta>(metaJson, JsonOptions);
+        if (meta == null || meta.UploaderId != uploaderId)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (System.IO.File.Exists(filePath)) System.IO.File.Delete(filePath);
+        if (System.IO.File.Exists(metaPath)) System.IO.File.Delete(metaPath);
+        return Task.CompletedTask;
     }
 
     public async Task<SharedFile> FinishChunkUploadAsync(string uploadId, string fileName, int uploaderId, int? parentId)
     {
-        var tempFilePath = Path.Combine(_tempPath, uploadId);
-        if (!System.IO.File.Exists(tempFilePath)) throw new FileNotFoundException("Upload session not found");
+        var tempFilePath = GetChunkTempFilePath(uploadId);
+        var metaPath = GetChunkMetaPath(uploadId);
+        if (!System.IO.File.Exists(tempFilePath) || !System.IO.File.Exists(metaPath)) throw new FileNotFoundException("Upload session not found");
+
+        var metaJson = await System.IO.File.ReadAllTextAsync(metaPath);
+        var meta = JsonSerializer.Deserialize<ChunkUploadMeta>(metaJson, JsonOptions);
+        if (meta == null || meta.UploaderId != uploaderId)
+        {
+            throw new FileNotFoundException("Upload session not found");
+        }
+
+        if (!string.Equals(meta.FileName, fileName, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("File name mismatch");
+        }
+
+        var tempInfo = new FileInfo(tempFilePath);
+        if (tempInfo.Length != meta.TotalSize)
+        {
+            throw new InvalidOperationException("Upload not complete");
+        }
 
         var storedFileName = $"{Guid.NewGuid()}{Path.GetExtension(fileName)}";
         var finalPath = Path.Combine(_uploadPath, storedFileName);
 
         System.IO.File.Move(tempFilePath, finalPath);
+        System.IO.File.Delete(metaPath);
 
         var fileInfo = new FileInfo(finalPath);
         

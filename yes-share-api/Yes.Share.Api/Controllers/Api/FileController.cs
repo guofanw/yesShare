@@ -84,10 +84,73 @@ public class FileController : ControllerBase
 
     [HttpPost("upload/chunk/append/{uploadId}")]
     [DisableRequestSizeLimit]
-    public async Task<IActionResult> AppendChunk(string uploadId, IFormFile chunk)
+    public async Task<IActionResult> AppendChunk(string uploadId)
     {
-        await _fileService.AppendChunkAsync(uploadId, chunk);
-        return Ok();
+        if (string.IsNullOrEmpty(uploadId))
+        {
+            return BadRequest("Invalid uploadId");
+        }
+
+        try
+        {
+            await _fileService.AppendChunkAsync(uploadId, Request.Body, UserId);
+            return Ok();
+        }
+        catch (FileNotFoundException ex)
+        {
+            Console.WriteLine($"[AppendChunk] File not found: {ex.Message}");
+            return BadRequest(ex.Message);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+        catch (IOException ex)
+        {
+            Console.WriteLine($"[AppendChunk] IO Exception: {ex.Message}");
+            return StatusCode(500, $"File write error: {ex.Message}");
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[AppendChunk] Unexpected error: {ex.Message}");
+            return StatusCode(500, $"Internal server error: {ex.Message}");
+        }
+    }
+
+    [HttpGet("upload/chunk/status/{uploadId}")]
+    public async Task<ActionResult<ChunkUploadStatusResponse>> GetChunkStatus(string uploadId)
+    {
+        try
+        {
+            var status = await _fileService.GetChunkUploadStatusAsync(uploadId, UserId);
+            return Ok(status);
+        }
+        catch (FileNotFoundException ex)
+        {
+            return BadRequest(ex.Message);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
+    }
+
+    [HttpPost("upload/chunk/cancel/{uploadId}")]
+    public async Task<IActionResult> CancelChunk(string uploadId)
+    {
+        try
+        {
+            await _fileService.CancelChunkUploadAsync(uploadId, UserId);
+            return Ok();
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return Forbid();
+        }
     }
 
     [HttpPost("upload/chunk/finish/{uploadId}")]

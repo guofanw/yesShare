@@ -128,7 +128,9 @@ function setLang(lang) {
     if(s2) s2.value = lang;
 
     updateUI();
-    if(currentUser) loadFiles(); // Reload content
+    if(currentUser) {
+        loadFiles();
+    }
 }
 
 function updateUI() {
@@ -194,6 +196,7 @@ function showApp() {
     }
     
     loadFiles();
+    showRecoveredUploads();
 }
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -387,6 +390,7 @@ async function loadFiles() {
              document.getElementById('search-input').value = searchText || '';
              document.getElementById('search-input').focus();
         }
+        showRecoveredUploads();
     } catch (err) {
         content.innerHTML = `<div class="alert alert-danger">加载失败: ${err.message}</div>`;
     }
@@ -575,16 +579,190 @@ function handleUpload(e) {
     handleFiles(e.target.files);
 }
 
+const UPLOAD_STATE_KEY = 'yesShare_pendingUploads';
+
+function saveUploadState(uploadId, file, parentId, chunkSize, offset) {
+    try {
+        const uploads = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}');
+        uploads[uploadId] = {
+            fileName: file.name,
+            fileSize: file.size,
+            lastModified: file.lastModified,
+            parentId: parentId ?? null,
+            chunkSize: chunkSize,
+            offset: offset,
+            timestamp: Date.now()
+        };
+        localStorage.setItem(UPLOAD_STATE_KEY, JSON.stringify(uploads));
+    } catch (e) {}
+}
+
+function updateUploadState(uploadId, patch) {
+    try {
+        const uploads = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}');
+        if (!uploads[uploadId]) return;
+        uploads[uploadId] = { ...uploads[uploadId], ...patch, timestamp: Date.now() };
+        localStorage.setItem(UPLOAD_STATE_KEY, JSON.stringify(uploads));
+    } catch (e) {}
+}
+
+function clearUploadState(uploadId) {
+    try {
+        const uploads = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}');
+        delete uploads[uploadId];
+        localStorage.setItem(UPLOAD_STATE_KEY, JSON.stringify(uploads));
+    } catch (e) {}
+}
+
+function clearAllUploadState() {
+    try {
+        localStorage.removeItem(UPLOAD_STATE_KEY);
+    } catch (e) {}
+}
+
+function hasPendingUploads() {
+    try {
+        const uploads = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}');
+        return Object.keys(uploads).length > 0;
+    } catch (e) {
+        return false;
+    }
+}
+
+window.showRecoveredUploads = function() {
+    const uploads = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}');
+    const now = Date.now();
+    const container = document.getElementById('upload-progress-container');
+    if (!container) return;
+
+    container.querySelectorAll('[data-recovered="1"], #recovered-warning').forEach(el => el.remove());
+
+    const uploadIds = Object.keys(uploads);
+    if (!uploadIds.length) return;
+
+    Object.entries(uploads).forEach(([uploadId, info]) => {
+        const age = now - info.timestamp;
+        if (age < 30 * 60 * 1000) {
+            return;
+        } else {
+            clearUploadState(uploadId);
+        }
+    });
+
+    const remaining = Object.keys(JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}'));
+    if (!remaining.length) return;
+
+    container.innerHTML += `
+        <div class="alert alert-warning mb-2" role="alert" id="recovered-warning" data-recovered="1">
+            检测到 ${remaining.length} 个未完成的上传。刷新后浏览器无法继续读取文件内容，需要重新选择同一文件才能续传。
+            <button class="btn btn-sm btn-outline-warning ms-2" onclick="clearAllUploadState(); location.reload();">清除记录</button>
+        </div>
+    `;
+
+    if (!document.getElementById('resume-file-input')) {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.id = 'resume-file-input';
+        input.style.display = 'none';
+        input.addEventListener('change', (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (!f || !window.__resumeTarget) return;
+            const { uploadId, expected } = window.__resumeTarget;
+            if (f.name !== expected.fileName || f.size !== expected.fileSize) {
+                alert('请选择同一个文件（文件名/大小必须一致）');
+                return;
+            }
+            resumeChunkUpload(uploadId, f, expected.parentId);
+        });
+        document.body.appendChild(input);
+    }
+
+    remaining.forEach(async (uploadId) => {
+        const info = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}')[uploadId];
+        if (!info) return;
+
+        let status;
+        try {
+            const res = await authFetch(`${API_URL}/file/upload/chunk/status/${uploadId}`);
+            if (!res.ok) throw new Error(await res.text());
+            status = await res.json();
+        } catch (e) {
+            container.innerHTML += `
+                <div class="mb-2 p-2 border rounded bg-white shadow-sm" data-recovered="1">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="text-truncate" style="max-width: 70%">${info.fileName}</span>
+                        <div>
+                            <span class="me-2 small">状态未知</span>
+                            <button class="btn btn-sm btn-outline-danger py-0" onclick="cancelRecoveredUpload('${uploadId}')">清除</button>
+                        </div>
+                    </div>
+                    <div class="small text-muted">${uploadId}</div>
+                </div>
+            `;
+            return;
+        }
+
+        const percent = status.totalSize ? Math.round((status.receivedSize / status.totalSize) * 100) : 0;
+        const boxId = `recovered-${uploadId}`;
+
+        container.innerHTML += `
+            <div class="mb-2 p-2 border rounded bg-white shadow-sm" id="${boxId}" data-recovered="1">
+                <div class="d-flex justify-content-between align-items-center mb-1">
+                    <span class="text-truncate" style="max-width: 70%">${status.fileName}</span>
+                    <div>
+                        <span id="${boxId}-text" class="me-2 small">${percent}%</span>
+                        <button class="btn btn-sm btn-outline-primary py-0" onclick="promptResumeUpload('${uploadId}')">继续</button>
+                        <button class="btn btn-sm btn-outline-danger py-0 ms-1" onclick="cancelRecoveredUpload('${uploadId}')">取消</button>
+                    </div>
+                </div>
+                <div class="progress" style="height: 5px;">
+                    <div id="${boxId}-bar" class="progress-bar" style="width: ${percent}%"></div>
+                </div>
+                <div class="small text-muted">${status.receivedSize} / ${status.totalSize}</div>
+            </div>
+        `;
+    });
+};
+
+window.promptResumeUpload = (uploadId) => {
+    const uploads = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}');
+    const info = uploads[uploadId];
+    if (!info) return;
+    window.__resumeTarget = { uploadId, expected: info };
+    document.getElementById('resume-file-input')?.click();
+};
+
+window.cancelRecoveredUpload = async (uploadId) => {
+    const ctrl = window.__resumeAbortCtrls?.[uploadId];
+    if (ctrl) ctrl.abort();
+    try {
+        await authFetch(`${API_URL}/file/upload/chunk/cancel/${uploadId}`, { method: 'POST' });
+    } catch (e) {}
+    clearUploadState(uploadId);
+    document.getElementById(`recovered-${uploadId}`)?.remove();
+};
+
+window.addEventListener('beforeunload', (e) => {
+    if (hasPendingUploads()) {
+        e.preventDefault();
+        e.returnValue = '还有文件正在上传中，确定要离开吗？';
+        return e.returnValue;
+    }
+});
+
 async function handleFiles(files) {
     const fileList = Array.from(files);
     if (!fileList.length) return;
     
     const container = document.getElementById('upload-progress-container');
+    window.__uploadIdByProgressId = window.__uploadIdByProgressId || {};
     
     // Queue Logic could be added here, currently parallel with concurrency limit by browser
     for (const file of fileList) {
         const progressId = `prog-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const abortCtrl = new AbortController();
+        let chunkUploadId = null;
         
         container.innerHTML += `
             <div class="mb-2 p-2 border rounded bg-white shadow-sm" id="${progressId}-box">
@@ -606,12 +784,13 @@ async function handleFiles(files) {
         
         try {
             if (file.size > 10 * 1024 * 1024) { // > 10MB
-                await uploadChunked(file, progressId, abortCtrl);
+                chunkUploadId = await uploadChunked(file, progressId, abortCtrl);
             } else {
                 await uploadSingle(file, progressId, abortCtrl);
             }
             
             // Success
+            if (chunkUploadId) clearUploadState(chunkUploadId);
             const box = document.getElementById(`${progressId}-box`);
             if(box) {
                 box.classList.remove('bg-white');
@@ -621,6 +800,7 @@ async function handleFiles(files) {
             }
         } catch (err) {
             if (err.name === 'AbortError') {
+                 if (chunkUploadId) clearUploadState(chunkUploadId);
                  document.getElementById(`${progressId}-text`).textContent = '已取消';
             } else {
                  document.getElementById(`${progressId}-text`).textContent = '失败';
@@ -630,6 +810,7 @@ async function handleFiles(files) {
         }
         
         delete window[`abort_${progressId}`];
+        delete window.__uploadIdByProgressId[progressId];
     }
     loadFiles(); // Refresh once batch started/done
 }
@@ -638,6 +819,12 @@ window.abortUpload = (id) => {
     const ctrl = window[`abort_${id}`];
     if (ctrl) ctrl.abort();
     document.getElementById(`${id}-box`)?.remove();
+    const uploadId = window.__uploadIdByProgressId?.[id];
+    if (uploadId) {
+        authFetch(`${API_URL}/file/upload/chunk/cancel/${uploadId}`, { method: 'POST' }).catch(() => {});
+        clearUploadState(uploadId);
+        delete window.__uploadIdByProgressId[id];
+    }
 };
 
 async function uploadSingle(file, progressId, abortCtrl) {
@@ -686,41 +873,121 @@ async function uploadChunked(file, progressId, abortCtrl) {
     });
     if(!initRes.ok) throw new Error("Init failed");
     const { uploadId } = await initRes.json();
-    
-    // 2. Chunks
     const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
-    let offset = 0;
-    
+    saveUploadState(uploadId, file, currentFolderId, CHUNK_SIZE, 0);
+    window.__uploadIdByProgressId = window.__uploadIdByProgressId || {};
+    window.__uploadIdByProgressId[progressId] = uploadId;
+
+    await uploadChunkedContinue(file, abortCtrl, uploadId, 0, CHUNK_SIZE, currentFolderId, (percent) => updateProgress(progressId, percent));
+    return uploadId;
+}
+
+async function uploadChunkedContinue(file, abortCtrl, uploadId, startOffset, chunkSize, parentId, progressUpdater) {
+    let offset = startOffset;
+    if (offset < 0 || offset > file.size) throw new Error('Invalid resume offset');
+
+    const initialPercent = Math.round((offset / file.size) * 100);
+    progressUpdater(initialPercent);
+
     while (offset < file.size) {
         if (abortCtrl.signal.aborted) throw new DOMException('Aborted', 'AbortError');
-        
-        const chunk = file.slice(offset, offset + CHUNK_SIZE);
-        const formData = new FormData();
-        formData.append('chunk', chunk);
-        
+
+        const chunk = file.slice(offset, offset + chunkSize);
         const res = await fetch(`${API_URL}/file/upload/chunk/append/${uploadId}`, {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
-            body: formData,
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/octet-stream'
+            },
+            body: chunk,
             signal: abortCtrl.signal
         });
-        if(!res.ok) throw new Error("Chunk upload failed");
-        
+        if(!res.ok) {
+            const errorText = await res.text();
+            throw new Error(`Chunk upload failed: ${errorText}`);
+        }
+
         offset += chunk.size;
+        updateUploadState(uploadId, { offset: offset });
         const percent = Math.round((offset / file.size) * 100);
-        updateProgress(progressId, percent);
+        progressUpdater(percent);
     }
-    
-    // 3. Finish
-    await fetch(`${API_URL}/file/upload/chunk/finish/${uploadId}`, {
+
+    const finishRes = await fetch(`${API_URL}/file/upload/chunk/finish/${uploadId}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ uploadId, fileName: file.name, parentId: currentFolderId }),
+        body: JSON.stringify({ uploadId, fileName: file.name, parentId: parentId }),
         signal: abortCtrl.signal
     });
+    if (!finishRes.ok) {
+        const errorText = await finishRes.text();
+        throw new Error(`Finish failed: ${errorText}`);
+    }
+
+    clearUploadState(uploadId);
+}
+
+async function resumeChunkUpload(uploadId, file, parentId) {
+    const container = document.getElementById('upload-progress-container');
+    if (!container) return;
+
+    const boxId = `recovered-${uploadId}`;
+    const bar = document.getElementById(`${boxId}-bar`);
+    const text = document.getElementById(`${boxId}-text`);
+    if (!bar || !text) return;
+
+    window.__resumeAbortCtrls = window.__resumeAbortCtrls || {};
+    const abortCtrl = new AbortController();
+    window.__resumeAbortCtrls[uploadId] = abortCtrl;
+
+    let status;
+    const uploads = JSON.parse(localStorage.getItem(UPLOAD_STATE_KEY) || '{}');
+    const info = uploads[uploadId];
+    const chunkSize = info?.chunkSize || (5 * 1024 * 1024);
+
+    try {
+        const res = await authFetch(`${API_URL}/file/upload/chunk/status/${uploadId}`);
+        if (!res.ok) throw new Error(await res.text());
+        status = await res.json();
+    } catch (e) {
+        alert('无法获取服务器进度');
+        return;
+    }
+
+    if (status.receivedSize > file.size) {
+        clearUploadState(uploadId);
+        alert('服务器进度异常，已清除该上传记录');
+        return;
+    }
+
+    const progressUpdater = (percent) => {
+        bar.style.width = `${percent}%`;
+        text.textContent = `${percent}%`;
+    };
+
+    try {
+        await uploadChunkedContinue(file, abortCtrl, uploadId, status.receivedSize, chunkSize, parentId, progressUpdater);
+        const box = document.getElementById(boxId);
+        if (box) {
+            box.classList.remove('bg-white');
+            box.classList.add('bg-success', 'bg-opacity-10');
+            text.textContent = '完成';
+            setTimeout(() => box.remove(), 2000);
+        }
+        delete window.__resumeAbortCtrls[uploadId];
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            text.textContent = '已取消';
+            delete window.__resumeAbortCtrls[uploadId];
+        } else {
+            bar.classList.add('bg-danger');
+            text.textContent = '失败';
+            console.error(err);
+        }
+    }
 }
 
 function updateProgress(id, percent) {
@@ -867,8 +1134,31 @@ window.deleteFile = async (id) => {
 
 window.copyLink = (shareToken) => {
     const link = `${window.location.origin}/api/file/share/${shareToken}`;
-    navigator.clipboard.writeText(link);
-    alert(t('shareLinkCopy') + link);
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(link).then(() => {
+            alert(t('shareLinkCopy') + link);
+        }).catch(() => {
+            fallbackCopyText(link);
+        });
+    } else {
+        fallbackCopyText(link);
+    }
+};
+
+function fallbackCopyText(text) {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+        document.execCommand('copy');
+        alert(t('shareLinkCopy') + text);
+    } catch (err) {
+        prompt(t('shareLinkCopy') + text, text);
+    }
+    document.body.removeChild(textarea);
 };
 
 // Set initial selection
