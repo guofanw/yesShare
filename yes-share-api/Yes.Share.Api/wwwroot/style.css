@@ -111,3 +111,19 @@ pre {
     text-decoration: none;
 }
 
+.repo-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 0;
+    text-decoration: none;
+}
+
+.repo-link:hover {
+    opacity: 0.85;
+}
+
+.repo-link svg {
+    display: block;
+}
+
