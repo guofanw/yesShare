@@ -11,6 +11,7 @@ public class AppDbContext : DbContext
     public DbSet<SharedFile> SharedFiles { get; set; }
     public DbSet<FilePermission> FilePermissions { get; set; }
     public DbSet<SystemLog> SystemLogs { get; set; }
+    public DbSet<PublishPost> PublishPosts { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -35,5 +36,22 @@ public class AppDbContext : DbContext
             .WithMany(f => f.Children)
             .HasForeignKey(f => f.ParentId)
             .OnDelete(DeleteBehavior.Cascade); // Delete folder deletes children
+
+        modelBuilder.Entity<PublishPost>()
+            .HasOne(p => p.User)
+            .WithMany()
+            .HasForeignKey(p => p.UserId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<PublishPost>()
+            .Property(p => p.TextFormat)
+            .HasMaxLength(32);
+
+        modelBuilder.Entity<PublishPost>()
+            .Property(p => p.CodeLanguage)
+            .HasMaxLength(64);
+
+        modelBuilder.Entity<PublishPost>()
+            .HasIndex(p => p.CreatedAt);
     }
 }

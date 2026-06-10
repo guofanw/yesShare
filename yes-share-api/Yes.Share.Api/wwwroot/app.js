@@ -5,6 +5,12 @@ let currentFolderId = null;
 let autoRefreshTimer = null;
 let currentFolderPath = [];
 let currentLang = localStorage.getItem('lang') || 'zh-CN';
+let currentPage = 'files';
+let publishState = {
+    page: 1,
+    pageSize: 5,
+    keyword: ''
+};
 
 const i18n = {
     'zh-CN': {
@@ -15,6 +21,7 @@ const i18n = {
         login: '登录',
         register: '注册',
         files: '文件列表',
+        publish: '发布',
         dashboard: '系统看板',
         logout: '退出',
         user: '用户',
@@ -57,7 +64,41 @@ const i18n = {
         searchPlaceholder: '搜索文件名...',
         filePreview: '文件预览',
         copyFull: '复制全文',
-        close: '关闭'
+        close: '关闭',
+        publishTitle: '内容发布',
+        publishDescription: '发布文本或图片，历史记录支持分页和关键词搜索。',
+        publishTextType: '文本类型',
+        publishMode: '发布模式',
+        publishAuto: '自动识别',
+        publishPlainText: '普通文本',
+        publishCodeText: '代码文本',
+        publishCodeLanguage: '代码语言',
+        publishContent: '发布内容',
+        publishContentPlaceholder: '请输入要发布的内容，最多 2000 个字符。',
+        publishImage: '图片',
+        publishImageHint: '支持 jpg、jpeg、png、gif、webp，可留空。',
+        publishSubmit: '立即发布',
+        publishHistory: '历史发布',
+        publishSearchPlaceholder: '搜索发布内容或用户...',
+        publishSearch: '搜索',
+        publishReset: '重置',
+        publishLengthHint: '剩余字符',
+        publishNeedContent: '请至少填写文本内容或选择一张图片。',
+        publishSuccess: '发布成功',
+        publishEmpty: '暂无发布记录',
+        publishPageInfo: '第 {page} / {total} 页，共 {count} 条',
+        publishPrev: '上一页',
+        publishNext: '下一页',
+        publishBy: '发布用户',
+        publishAt: '发布时间',
+        publishImagePreview: '图片预览',
+        publishOpenComposer: '去发布',
+        publishStatsTotal: '内容总条数',
+        publishStatsLatest: '最新发布时间',
+        publishStatsCode: '代码内容',
+        publishStatsImage: '带图内容',
+        publishLatestEmpty: '暂无',
+        publishAutoHint: '默认自动识别代码和普通文本，也可以手动指定。'
     },
     'en-US': {
         title: 'Yes.Share - LAN File Sharing',
@@ -67,6 +108,7 @@ const i18n = {
         login: 'Login',
         register: 'Register',
         files: 'Files',
+        publish: 'Publish',
         dashboard: 'Dashboard',
         logout: 'Logout',
         user: 'User',
@@ -109,7 +151,41 @@ const i18n = {
         searchPlaceholder: 'Search files...',
         filePreview: 'File Preview',
         copyFull: 'Copy All',
-        close: 'Close'
+        close: 'Close',
+        publishTitle: 'Publish',
+        publishDescription: 'Post text or images with searchable paged history.',
+        publishTextType: 'Text Type',
+        publishMode: 'Mode',
+        publishAuto: 'Auto Detect',
+        publishPlainText: 'Plain Text',
+        publishCodeText: 'Code',
+        publishCodeLanguage: 'Code Language',
+        publishContent: 'Content',
+        publishContentPlaceholder: 'Enter content to publish, up to 2000 characters.',
+        publishImage: 'Image',
+        publishImageHint: 'Supports jpg, jpeg, png, gif, webp. Optional.',
+        publishSubmit: 'Publish Now',
+        publishHistory: 'History',
+        publishSearchPlaceholder: 'Search content or user...',
+        publishSearch: 'Search',
+        publishReset: 'Reset',
+        publishLengthHint: 'Remaining',
+        publishNeedContent: 'Please enter text or choose an image.',
+        publishSuccess: 'Published successfully',
+        publishEmpty: 'No posts yet',
+        publishPageInfo: 'Page {page} / {total}, {count} items',
+        publishPrev: 'Prev',
+        publishNext: 'Next',
+        publishBy: 'User',
+        publishAt: 'Published At',
+        publishImagePreview: 'Image Preview',
+        publishOpenComposer: 'Create Post',
+        publishStatsTotal: 'Total Posts',
+        publishStatsLatest: 'Latest Published',
+        publishStatsCode: 'Code Posts',
+        publishStatsImage: 'Image Posts',
+        publishLatestEmpty: 'None',
+        publishAutoHint: 'Auto-detects plain text or code by default, with manual override.'
     }
 };
 
@@ -129,7 +205,7 @@ function setLang(lang) {
 
     updateUI();
     if(currentUser) {
-        loadFiles();
+        loadCurrentPage();
     }
 }
 
@@ -151,6 +227,7 @@ function updateUI() {
     
     // Navbar
     safeSet('nav-files', 'files');
+    safeSet('nav-publish', 'publish');
     safeSet('nav-dashboard', 'dashboard');
     safeSet('btn-logout', 'logout');
     
@@ -158,7 +235,47 @@ function updateUI() {
     safeSet('modal-preview-title', 'filePreview');
     safeSet('btn-copy-preview', 'copyFull');
     safeSet('btn-close-preview', 'close');
+    safeSet('publish-composer-title', 'publishTitle');
+    safeSet('publish-mode-label', 'publishMode');
+    safeSet('publish-language-label', 'publishCodeLanguage');
+    safeSet('publish-content-label', 'publishContent');
+    safeSet('publish-image-label', 'publishImage');
+    safeSet('publish-image-hint', 'publishImageHint');
+    safeSet('publish-remaining-label', 'publishLengthHint');
+    safeSet('publish-submit-btn', 'publishSubmit');
+    safeSet('publish-modal-close', 'close');
     // ... more dynamic updates in render functions
+
+    const publishContent = document.getElementById('publish-content');
+    if (publishContent) publishContent.placeholder = t('publishContentPlaceholder');
+    const publishPreview = document.getElementById('publish-image-preview');
+    if (publishPreview) publishPreview.alt = t('publishImagePreview');
+    const publishModeSelect = document.getElementById('publish-text-format');
+    if (publishModeSelect?.options?.length >= 3) {
+        publishModeSelect.options[0].text = t('publishAuto');
+        publishModeSelect.options[1].text = t('publishPlainText');
+        publishModeSelect.options[2].text = t('publishCodeText');
+    }
+}
+
+function setActiveNav(page) {
+    document.querySelectorAll('.nav-link').forEach(link => {
+        link.classList.toggle('active', link.dataset.page === page);
+    });
+}
+
+function loadCurrentPage() {
+    if (currentPage === 'publish') {
+        loadPublishPage();
+        return;
+    }
+
+    if (currentPage === 'dashboard') {
+        loadDashboard();
+        return;
+    }
+
+    loadFiles();
 }
 
 // --- Auth & Init ---
@@ -194,8 +311,9 @@ function showApp() {
     } else {
         document.getElementById('nav-dashboard').classList.remove('d-none');
     }
-    
-    loadFiles();
+
+    setActiveNav(currentPage);
+    loadCurrentPage();
 }
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -262,12 +380,10 @@ document.getElementById('btn-register-mode').addEventListener('click', async () 
 document.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', (e) => {
         e.preventDefault();
-        document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-        e.target.classList.add('active');
-        
         const page = e.target.dataset.page;
-        if (page === 'files') loadFiles();
-        if (page === 'dashboard') loadDashboard();
+        currentPage = page;
+        setActiveNav(page);
+        loadCurrentPage();
     });
 });
 
@@ -542,6 +658,14 @@ function openImagePreview(shareToken, fileName) {
     
     modal.show();
 }
+
+window.openPublishImagePreview = (imageUrl) => {
+    const modal = new bootstrap.Modal(document.getElementById('imagePreviewModal'));
+    const img = document.getElementById('preview-image-modal-img');
+    img.src = '';
+    img.src = `${imageUrl}?access_token=${token}`;
+    modal.show();
+};
 
 function showImgPreview(e, shareToken) {
     // Deprecated
@@ -1018,6 +1142,330 @@ function updateProgress(id, percent) {
     }
 }
 
+// --- Publish ---
+
+async function loadPublishPage() {
+    const content = document.getElementById('content-area');
+    content.innerHTML = `<h3>${t('loading')}</h3>`;
+
+    const pageInfo = await fetchPublishHistory();
+    renderPublishPage(pageInfo);
+}
+
+async function fetchPublishHistory() {
+    try {
+        const query = new URLSearchParams({
+            page: String(publishState.page),
+            pageSize: String(publishState.pageSize)
+        });
+
+        if (publishState.keyword) {
+            query.set('keyword', publishState.keyword);
+        }
+
+        const res = await authFetch(`${API_URL}/publish?${query.toString()}`);
+        if (!res.ok) {
+            throw new Error(await res.text());
+        }
+
+        return await res.json();
+    } catch (err) {
+        return {
+            items: [],
+            page: publishState.page,
+            pageSize: publishState.pageSize,
+            totalCount: 0,
+            totalPages: 1,
+            error: err.message
+        };
+    }
+}
+
+function renderPublishPage(pageInfo) {
+    const content = document.getElementById('content-area');
+    const pageInfoText = t('publishPageInfo')
+        .replace('{page}', pageInfo.page)
+        .replace('{total}', pageInfo.totalPages)
+        .replace('{count}', pageInfo.totalCount);
+    const summary = pageInfo.summary || {
+        totalCount: 0,
+        latestPublishTime: null,
+        codePostCount: 0,
+        imagePostCount: 0
+    };
+
+    content.innerHTML = `
+        <div class="d-flex justify-content-between align-items-start mb-3">
+            <div>
+                <h3 class="mb-1">${t('publishTitle')}</h3>
+                <div class="text-muted">${t('publishDescription')}</div>
+            </div>
+        </div>
+        <div class="publish-stats-grid mb-3">
+            ${renderPublishSummary(summary)}
+        </div>
+        <div class="card shadow-sm publish-history-panel">
+            <div class="card-header bg-white">
+                <div class="publish-toolbar">
+                    <div>
+                        <strong>${t('publishHistory')}</strong>
+                        <div class="text-muted small mt-1">${t('publishAutoHint')}</div>
+                    </div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <div class="input-group" style="width: min(360px, 100%);">
+                            <input type="text" class="form-control" id="publish-search-input" value="${escapeHtmlAttr(publishState.keyword)}" placeholder="${t('publishSearchPlaceholder')}">
+                            <button class="btn btn-outline-secondary" type="button" onclick="searchPublishHistory()">${t('publishSearch')}</button>
+                            <button class="btn btn-outline-secondary" type="button" onclick="resetPublishSearch()">${t('publishReset')}</button>
+                        </div>
+                        <button class="btn btn-primary" type="button" onclick="openPublishComposer()">${t('publishOpenComposer')}</button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body d-flex flex-column">
+                ${pageInfo.error ? `<div class="alert alert-danger">${escapeHtml(pageInfo.error)}</div>` : ''}
+                <div id="publish-history-list" class="publish-history-list flex-grow-1">
+                    ${renderPublishHistoryItems(pageInfo.items)}
+                </div>
+                <div class="publish-pagination mt-3">
+                    <div class="text-muted small">${pageInfoText}</div>
+                    <div class="btn-group">
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="changePublishPage(${pageInfo.page - 1})" ${pageInfo.page <= 1 ? 'disabled' : ''}>${t('publishPrev')}</button>
+                        <button class="btn btn-outline-secondary btn-sm" type="button" onclick="changePublishPage(${pageInfo.page + 1})" ${pageInfo.page >= pageInfo.totalPages ? 'disabled' : ''}>${t('publishNext')}</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    highlightPublishBlocks();
+    syncPublishModalLanguage();
+    const searchInput = document.getElementById('publish-search-input');
+    if (searchInput) {
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                searchPublishHistory();
+            }
+        });
+    }
+}
+
+function renderPublishSummary(summary) {
+    return `
+        <div class="publish-stat-card card">
+            <div class="card-body">
+                <div class="publish-stat-label">${t('publishStatsTotal')}</div>
+                <div class="publish-stat-value">${summary.totalCount ?? 0}</div>
+                <div class="publish-stat-sub">${t('publishHistory')}</div>
+            </div>
+        </div>
+        <div class="publish-stat-card card">
+            <div class="card-body">
+                <div class="publish-stat-label">${t('publishStatsLatest')}</div>
+                <div class="publish-stat-value fs-5">${summary.latestPublishTime ? formatDateTime(summary.latestPublishTime) : t('publishLatestEmpty')}</div>
+                <div class="publish-stat-sub">${t('publishAt')}</div>
+            </div>
+        </div>
+        <div class="publish-stat-card card">
+            <div class="card-body">
+                <div class="publish-stat-label">${t('publishStatsCode')}</div>
+                <div class="publish-stat-value">${summary.codePostCount ?? 0}</div>
+                <div class="publish-stat-sub">${t('publishCodeText')}</div>
+            </div>
+        </div>
+        <div class="publish-stat-card card">
+            <div class="card-body">
+                <div class="publish-stat-label">${t('publishStatsImage')}</div>
+                <div class="publish-stat-value">${summary.imagePostCount ?? 0}</div>
+                <div class="publish-stat-sub">${t('publishImage')}</div>
+            </div>
+        </div>
+    `;
+}
+
+function renderPublishHistoryItems(items) {
+    if (!items || items.length === 0) {
+        return `<div class="text-center text-muted py-5">${t('publishEmpty')}</div>`;
+    }
+
+    return items.map(item => {
+        const contentHtml = renderPublishContent(item);
+        const imageHtml = item.imageUrl
+            ? `
+                <div class="mt-3">
+                    <img
+                        src="${item.imageUrl}?access_token=${encodeURIComponent(token)}"
+                        alt="${escapeHtmlAttr(item.imageFileName || 'publish-image')}"
+                        class="publish-image-thumb"
+                        onclick="openPublishImagePreview('${item.imageUrl}')"
+                    >
+                </div>
+            `
+            : '';
+
+        return `
+            <article class="publish-item">
+                <div class="publish-item-header">
+                    <div>
+                        <div class="fw-semibold">${t('publishBy')}: ${escapeHtml(item.userName)}</div>
+                        <div class="text-muted small">${t('publishAt')}: ${new Date(item.createdAt).toLocaleString()}</div>
+                    </div>
+                    <span class="badge text-bg-light">${item.textFormat === 'code' ? t('publishCodeText') : t('publishPlainText')}</span>
+                </div>
+                <div class="publish-item-body">
+                    ${contentHtml}
+                    ${imageHtml}
+                </div>
+            </article>
+        `;
+    }).join('');
+}
+
+function renderPublishContent(item) {
+    if (!item.content) {
+        return '';
+    }
+
+    if (item.textFormat === 'code') {
+        const lang = mapPublishLanguageToHighlight(item.codeLanguage);
+        return `<pre class="publish-code"><code class="language-${lang}">${escapeHtml(item.content)}</code></pre>`;
+    }
+
+    return `<p class="publish-content-text">${escapeHtml(item.content)}</p>`;
+}
+
+function bindPublishComposerEvents() {
+    const textarea = document.getElementById('publish-content');
+    const formatSelect = document.getElementById('publish-text-format');
+    const languageGroup = document.getElementById('publish-language-group');
+    const imageInput = document.getElementById('publish-image');
+    const previewWrap = document.getElementById('publish-image-preview-wrap');
+    const previewImage = document.getElementById('publish-image-preview');
+    const submitBtn = document.getElementById('publish-submit-btn');
+
+    if (!textarea || textarea.dataset.bound === '1') {
+        return;
+    }
+
+    textarea.dataset.bound = '1';
+
+    const updateRemaining = () => {
+        document.getElementById('publish-remaining').textContent = String(2000 - textarea.value.length);
+    };
+    textarea.addEventListener('input', updateRemaining);
+    updateRemaining();
+
+    formatSelect?.addEventListener('change', syncPublishModalLanguage);
+    syncPublishModalLanguage();
+
+    imageInput?.addEventListener('change', () => {
+        const [file] = imageInput.files || [];
+        if (!file) {
+            previewImage.src = '';
+            previewWrap.classList.add('d-none');
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(file);
+        previewImage.src = objectUrl;
+        previewWrap.classList.remove('d-none');
+    });
+
+    submitBtn?.addEventListener('click', submitPublishForm);
+}
+
+function syncPublishModalLanguage() {
+    const formatSelect = document.getElementById('publish-text-format');
+    const languageGroup = document.getElementById('publish-language-group');
+    if (!formatSelect || !languageGroup) return;
+    languageGroup.classList.toggle('d-none', formatSelect.value !== 'code');
+}
+
+async function submitPublishForm() {
+    const submitBtn = document.getElementById('publish-submit-btn');
+    const contentText = document.getElementById('publish-content').value.trim();
+    const textFormat = document.getElementById('publish-text-format').value;
+    const codeLanguage = document.getElementById('publish-code-language').value;
+    const imageInput = document.getElementById('publish-image');
+    const imageFile = imageInput.files?.[0];
+
+    if (!contentText && !imageFile) {
+        alert(t('publishNeedContent'));
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('content', contentText);
+    formData.append('textFormat', textFormat);
+    if (textFormat === 'code') {
+        formData.append('codeLanguage', codeLanguage);
+    }
+    if (imageFile) {
+        formData.append('image', imageFile);
+    }
+
+    submitBtn.disabled = true;
+    try {
+        const res = await authFetch(`${API_URL}/publish`, {
+            method: 'POST',
+            body: formData
+        });
+
+        if (!res.ok) {
+            throw new Error(await res.text());
+        }
+
+        alert(t('publishSuccess'));
+        resetPublishComposer();
+        publishState.page = 1;
+        bootstrap.Modal.getInstance(document.getElementById('publishComposerModal'))?.hide();
+        await loadPublishPage();
+    } catch (err) {
+        alert(err.message);
+    } finally {
+        submitBtn.disabled = false;
+    }
+}
+
+window.searchPublishHistory = async () => {
+    publishState.keyword = document.getElementById('publish-search-input')?.value.trim() || '';
+    publishState.page = 1;
+    await loadPublishPage();
+};
+
+window.resetPublishSearch = async () => {
+    publishState.keyword = '';
+    publishState.page = 1;
+    await loadPublishPage();
+};
+
+window.changePublishPage = async (page) => {
+    if (page < 1) return;
+    publishState.page = page;
+    await loadPublishPage();
+};
+
+window.openPublishComposer = () => {
+    syncPublishModalLanguage();
+    const modal = new bootstrap.Modal(document.getElementById('publishComposerModal'));
+    modal.show();
+};
+
+function resetPublishComposer() {
+    document.getElementById('publish-form').reset();
+    document.getElementById('publish-image-preview').src = '';
+    document.getElementById('publish-image-preview-wrap').classList.add('d-none');
+    document.getElementById('publish-remaining').textContent = '2000';
+    document.getElementById('publish-text-format').value = 'auto';
+    syncPublishModalLanguage();
+}
+
+function highlightPublishBlocks() {
+    document.querySelectorAll('#publish-history-list pre code').forEach(block => {
+        hljs.highlightElement(block);
+    });
+}
+
 // --- Dashboard ---
 
 async function loadDashboard() {
@@ -1108,6 +1556,38 @@ function formatSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+function formatDateTime(value) {
+    return new Date(value).toLocaleString();
+}
+
+function mapPublishLanguageToHighlight(language) {
+    const languageMap = {
+        json: 'json',
+        csharp: 'cs',
+        typescript: 'typescript',
+        shell: 'shell',
+        vue: 'vue',
+        cpp: 'cpp',
+        java: 'java',
+        html: 'html'
+    };
+
+    return languageMap[language] || 'plaintext';
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function escapeHtmlAttr(value) {
+    return escapeHtml(value);
+}
+
 window.downloadFile = (id) => {
     // Using query param for auth is easiest for browser download
     window.location.href = `${API_URL}/file/${id}/download?access_token=${token}`;
@@ -1185,4 +1665,6 @@ const langSelect = document.getElementById('lang-select');
 const langSelectLogin = document.getElementById('lang-select-login');
 if (langSelect) langSelect.value = currentLang;
 if (langSelectLogin) langSelectLogin.value = currentLang;
+bindPublishComposerEvents();
+document.getElementById('publishComposerModal')?.addEventListener('hidden.bs.modal', resetPublishComposer);
 init();

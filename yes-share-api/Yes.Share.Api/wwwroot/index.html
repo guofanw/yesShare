@@ -47,9 +47,12 @@
                     <span class="navbar-toggler-icon"></span>
                 </button>
                 <div class="collapse navbar-collapse" id="navbarNav">
-                    <ul class="navbar-nav me-auto">
+                    <ul class="navbar-nav me-auto function-nav">
                         <li class="nav-item">
                             <a class="nav-link active" href="#" data-page="files" id="nav-files">文件列表</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" href="#" data-page="publish" id="nav-publish">发布</a>
                         </li>
                         <li class="nav-item">
                             <a class="nav-link" href="#" data-page="dashboard" id="nav-dashboard">系统看板</a>
@@ -60,19 +63,6 @@
                             <option value="zh-CN">中文</option>
                             <option value="en-US">English</option>
                         </select>
-                        <div class="d-flex align-items-center me-3" id="repo-links">
-                            <a class="repo-link me-2" href="https://gitee.com/ndkkztf/yes-share.git" target="_blank" rel="noopener noreferrer" aria-label="Gitee" title="Gitee">
-                                <svg width="20" height="20" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                                    <rect x="2.5" y="2.5" width="19" height="19" rx="4" fill="#C71D23"></rect>
-                                    <path d="M7 12c0-2.761 2.239-5 5-5h5v3h-5a2 2 0 1 0 0 4h3v-1.5h-2v-2h5v6h-6a5 5 0 0 1-5-5z" fill="#FFFFFF"></path>
-                                </svg>
-                            </a>
-                            <a class="repo-link text-white" href="https://github.com/guofanw/yesShare.git" target="_blank" rel="noopener noreferrer" aria-label="GitHub" title="GitHub">
-                                <svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                                    <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.56 7.56 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8Z"></path>
-                                </svg>
-                            </a>
-                        </div>
                         <span class="navbar-text me-3" id="user-display"></span>
                         <button class="btn btn-outline-light btn-sm" id="btn-logout">退出</button>
                     </div>
@@ -116,6 +106,62 @@
                 <div class="modal-body p-0 text-center position-relative">
                     <button type="button" class="btn-close btn-close-white position-absolute top-0 end-0 m-3" data-bs-dismiss="modal" style="z-index: 10; background-color: rgba(0,0,0,0.5); padding: 10px;"></button>
                     <img id="preview-image-modal-img" src="" class="img-fluid rounded shadow-lg" alt="Preview">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="publishComposerModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="publish-composer-title">发布内容</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="publish-form">
+                        <div class="mb-3">
+                            <label class="form-label" id="publish-mode-label">发布模式</label>
+                            <select class="form-select" id="publish-text-format">
+                                <option value="auto">自动识别</option>
+                                <option value="plain">普通文本</option>
+                                <option value="code">代码文本</option>
+                            </select>
+                        </div>
+                        <div class="mb-3 d-none" id="publish-language-group">
+                            <label class="form-label" id="publish-language-label">代码语言</label>
+                            <select class="form-select" id="publish-code-language">
+                                <option value="json">Json</option>
+                                <option value="csharp">C#</option>
+                                <option value="typescript">TypeScript</option>
+                                <option value="shell">CMD</option>
+                                <option value="vue">Vue</option>
+                                <option value="cpp">C++</option>
+                                <option value="java">Java</option>
+                                <option value="html">Html</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" id="publish-content-label">发布内容</label>
+                            <textarea class="form-control publish-textarea" id="publish-content" maxlength="2000" placeholder="请输入要发布的内容，最多 2000 个字符。"></textarea>
+                        </div>
+                        <div class="text-end small text-muted mb-3">
+                            <span id="publish-remaining-label">剩余字符</span>
+                            <span id="publish-remaining">2000</span>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label" id="publish-image-label">图片</label>
+                            <input type="file" class="form-control" id="publish-image" accept=".jpg,.jpeg,.png,.gif,.webp,image/*">
+                            <div class="form-text" id="publish-image-hint">支持 jpg、jpeg、png、gif、webp，可留空。</div>
+                        </div>
+                        <div class="mb-3 d-none" id="publish-image-preview-wrap">
+                            <img id="publish-image-preview" class="publish-image-preview" alt="图片预览">
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="publish-modal-close">关闭</button>
+                    <button type="button" class="btn btn-primary" id="publish-submit-btn">立即发布</button>
                 </div>
             </div>
         </div>

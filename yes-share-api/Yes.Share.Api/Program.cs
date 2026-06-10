@@ -50,6 +50,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Services
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IFileService, FileService>();
+builder.Services.AddScoped<IPublishService, PublishService>();
 
 // JWT Auth
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -67,7 +68,7 @@ builder.Services.AddAuthentication(options =>
             var accessToken = context.Request.Query["access_token"];
             var path = context.HttpContext.Request.Path;
             if (!string.IsNullOrEmpty(accessToken) && 
-                (path.StartsWithSegments("/api/file") || path.StartsWithSegments("/api/system"))) // Allow for file downloads
+                (path.StartsWithSegments("/api/file") || path.StartsWithSegments("/api/system") || path.StartsWithSegments("/api/publish"))) // Allow for file downloads
             {
                 context.Token = accessToken;
             }
@@ -95,6 +96,22 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS PublishPosts (
+            Id INTEGER NOT NULL CONSTRAINT PK_PublishPosts PRIMARY KEY AUTOINCREMENT,
+            Content TEXT NULL,
+            TextFormat TEXT NOT NULL,
+            CodeLanguage TEXT NULL,
+            ImageStoredFileName TEXT NULL,
+            ImageFileName TEXT NULL,
+            ImageContentType TEXT NULL,
+            UserId INTEGER NOT NULL,
+            CreatedAt TEXT NOT NULL,
+            CONSTRAINT FK_PublishPosts_Users_UserId FOREIGN KEY (UserId) REFERENCES Users (Id) ON DELETE CASCADE
+        );
+        """);
+    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_PublishPosts_UserId ON PublishPosts (UserId);");
+    db.Database.ExecuteSqlRaw("CREATE INDEX IF NOT EXISTS IX_PublishPosts_CreatedAt ON PublishPosts (CreatedAt);");
     
     // Create default admin if not exists
     if (!db.Users.Any(u => u.Role == "Admin"))
