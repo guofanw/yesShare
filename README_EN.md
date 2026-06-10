@@ -1,8 +1,8 @@
-# Yes.Share - LAN File Sharing
+# Yes.Share - LAN File Sharing and Publishing
 
 [中文](README.md) | [English](README_EN.md)
 
-> 🚀 A high-performance, secure, and easy-to-deploy LAN file sharing solution built with .NET 8.
+> 🚀 A high-performance, secure, and easy-to-deploy LAN file sharing and content publishing solution built with .NET 8.
 
 **Repositories**
 - Gitee: https://gitee.com/ndkkztf/yes-share.git
@@ -12,18 +12,46 @@
 
 - **Backend**: [.NET 8](https://dotnet.microsoft.com/) Web API, Entity Framework Core 8
 - **Database**: [SQLite](https://www.sqlite.org/) (embedded, zero config)
-- **Frontend**: Vanilla JavaScript (ES6+), [Bootstrap 5](https://getbootstrap.com/), [Highlight.js](https://highlightjs.org/)
+- **Frontend**: Vanilla JavaScript (ES6+), Bootstrap 5, Highlight.js
 - **Auth**: JWT (JSON Web Tokens)
 - **Dev Tools**: Visual Studio / VS Code
 
 ## ✨ Features & Highlights
 
 - 📦 **Chunked upload for large files**: Upload 20GB+ files with automatic chunking and resumable uploads for stable LAN transfers.
-- 📁 **Folder navigation**: Folders are clickable. Click to enter a folder and browse its subfolders and files.
-- 👀 **Online preview for text/images/code**: Highlight.js powered syntax highlighting with one-click copy.
+- 📁 **Folder navigation**: Browse folders, enter directories, navigate paths, and search content.
+- 👀 **Online preview for text/images/code**: Preview text, images, and code with syntax highlighting and copy support.
+- 📝 **Publish module**: Post plain text, code snippets, and images with preview, paginated history, keyword search, and top summary cards.
+- 🤖 **Automatic code detection**: Detect plain text vs code automatically, with manual override available.
 - 📊 **System dashboard**: Online users, daily upload/download statistics, disk usage, and recent logs.
 - 🔐 **Fine-grained access control**: JWT authentication + RBAC, private files, public share tokens, and admin audit.
+- 🧩 **Local static assets only**: Frontend dependencies are served from local files without CDN dependency.
 - 🚀 **Single-file deployment**: Publish as a self-contained single executable for easy deployment.
+
+## 🆕 Publish Module
+
+- Supported content types:
+  - Plain text
+  - Code text
+  - Images
+- Text length limit: `2000` characters
+- Syntax highlighting for code content
+- Supported code languages:
+  - `Json`
+  - `C#`
+  - `TypeScript`
+  - `CMD`
+  - `Vue`
+  - `C++`
+  - `Java`
+  - `Html`
+- Automatic detection for plain text and code, with manual selection support
+- Paginated history with keyword search
+- Top summary cards include:
+  - Total posts
+  - Latest publish time
+  - Code post count
+  - Image post count
 
 ## 🚀 Getting Started
 
@@ -67,12 +95,44 @@ Optionally update `JwtSettings` in `appsettings.json` for better security:
 dotnet run
 ```
 
-After the server starts, you will see the URL in the terminal (commonly `http://localhost:5211` or `https://localhost:7xxx`). Open it in your browser.
+The default listening URL is:
 
-> **Note**: On first run, a SQLite database file `yesshare.db` will be created and a default admin account will be initialized.
+```json
+"Urls": "http://*:5112"
+```
+
+After the server starts, open `http://localhost:5112` in your browser. In development mode, Swagger is available at `http://localhost:5112/swagger`.
+
+> **Note**: On first run, a SQLite database file `yesshare.db` will be created, the publish module tables will be ensured, and a default admin account will be initialized.
 >
 > - **Username**: `admin`
 > - **Password**: `admin123`
+
+## 📡 Main APIs
+
+### Auth
+
+- `POST /api/auth/login`
+- `POST /api/auth/register`
+
+### Files
+
+- `GET /api/file`
+- `POST /api/file/upload`
+- `POST /api/file/upload/chunk/init`
+- `POST /api/file/upload/chunk/append/{uploadId}`
+- `POST /api/file/upload/chunk/finish/{uploadId}`
+- `GET /api/file/{id}/download`
+
+### Publish
+
+- `POST /api/publish`
+- `GET /api/publish`
+- `GET /api/publish/{id}/image`
+
+### Dashboard
+
+- `GET /api/system/dashboard`
 
 ## 🔨 Build & Deployment
 
@@ -82,7 +142,7 @@ After the server starts, you will see the URL in the terminal (commonly `http://
 dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 ```
 
-The output will be in `bin/Release/net8.0/win-x64/publish/`. Copy `Yes.Share.Api.exe` (and the `wwwroot` folder to serve static assets) to your target machine.
+The output will be in `bin/Release/net8.0/win-x64/publish/`. Copy `Yes.Share.Api.exe`, the `wwwroot` folder, and the required configuration files to your target machine.
 
 ### Docker (optional)
 
@@ -106,6 +166,37 @@ ENTRYPOINT ["dotnet", "Yes.Share.Api.dll"]
 ![Screenshot 4](imgs/4.png)
 ![Screenshot 5](imgs/5.png)
 ![Screenshot 6](imgs/6.png)
+![Screenshot 7](imgs/7.png)
+
+## 📁 Project Structure
+
+```text
+yes-share/
+├─ imgs/
+├─ yes-share-api/
+│  ├─ Yes.Share.Api/
+│  │  ├─ Controllers/
+│  │  ├─ Data/
+│  │  ├─ Dtos/
+│  │  ├─ Filters/
+│  │  ├─ Models/
+│  │  ├─ Services/
+│  │  ├─ Uploads/
+│  │  └─ wwwroot/
+│  └─ yes-share-api.sln
+├─ README.md
+├─ README_EN.md
+└─ LICENSE
+```
+
+## 🌐 Local Assets
+
+All frontend dependencies are served from local static assets, which makes the project suitable for isolated LAN deployment:
+
+- `wwwroot/css/bootstrap.min.css`
+- `wwwroot/js/bootstrap.bundle.min.js`
+- `wwwroot/css/highlight.min.css`
+- `wwwroot/js/highlight.min.js`
 
 ## 🤝 Contributing
 
