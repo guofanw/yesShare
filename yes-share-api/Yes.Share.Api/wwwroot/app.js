@@ -599,7 +599,7 @@ function renderFileList(files) {
             </td>
             <td>${sizeHtml}</td>
             <td>${f.uploaderName}</td>
-            <td>${new Date(f.uploadTime).toLocaleString()}</td>
+            <td>${formatDateTime(f.uploadTime)}</td>
             <td>${actionHtml}</td>
         </tr>
     `}).join('');
@@ -1308,7 +1308,7 @@ function renderPublishHistoryItems(items) {
                 <div class="publish-item-header">
                     <div>
                         <div class="fw-semibold">${t('publishBy')}: ${escapeHtml(item.userName)}</div>
-                        <div class="text-muted small">${t('publishAt')}: ${new Date(item.createdAt).toLocaleString()}</div>
+                        <div class="text-muted small">${t('publishAt')}: ${formatDateTime(item.createdAt)}</div>
                     </div>
                     <span class="badge text-bg-light">${item.textFormat === 'code' ? t('publishCodeText') : t('publishPlainText')}</span>
                 </div>
@@ -1520,7 +1520,7 @@ async function loadDashboard() {
                 <tbody>
                     ${data.recentLogs.map(l => `
                         <tr>
-                            <td>${new Date(l.time).toLocaleString()}</td>
+                            <td>${formatDateTime(l.time)}</td>
                             <td>${l.user}</td>
                             <td>${l.action}</td>
                             <td>${l.details}</td>
@@ -1557,7 +1557,28 @@ function formatSize(bytes) {
 }
 
 function formatDateTime(value) {
-    return new Date(value).toLocaleString();
+    if (!value) {
+        return '';
+    }
+
+    let normalizedValue = value;
+    if (typeof value === 'string') {
+        const trimmedValue = value.trim();
+
+        // Treat timezone-less ISO timestamps from the API as UTC, then render in local time.
+        if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(trimmedValue)) {
+            normalizedValue = `${trimmedValue}Z`;
+        } else {
+            normalizedValue = trimmedValue;
+        }
+    }
+
+    const date = new Date(normalizedValue);
+    if (Number.isNaN(date.getTime())) {
+        return String(value);
+    }
+
+    return date.toLocaleString();
 }
 
 function mapPublishLanguageToHighlight(language) {
